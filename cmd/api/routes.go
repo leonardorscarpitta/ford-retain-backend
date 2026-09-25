@@ -9,7 +9,6 @@ import (
 	"github.com/ford-retain/backend/internal/dealerships"
 	"github.com/ford-retain/backend/internal/notifications"
 	"github.com/ford-retain/backend/internal/platform/httpx"
-	"github.com/ford-retain/backend/internal/seed"
 	"github.com/ford-retain/backend/internal/telemetry"
 	"github.com/ford-retain/backend/internal/vehicles"
 )
@@ -23,8 +22,8 @@ const sessionTTL = 7 * 24 * time.Hour
 //	owned    /api/vehicles/{vin}/…      — the VIN must be the user's (vehicles.RequireOwner)
 //
 // Data owned by Ford's platform comes from src (seed data or Ford's APIs);
-// appointments are this service's own.
-func newHandler(now time.Time, users []auth.User, src sources) http.Handler {
+// appointments are this service's own, stored in bookings.
+func newHandler(users []auth.User, src sources, bookings appointments.Repository) http.Handler {
 	authH := auth.NewHandler(auth.NewService(users, sessionTTL))
 	vehiclesH := vehicles.NewHandler(src.vehicles)
 	dealershipStore := src.dealers
@@ -42,7 +41,7 @@ func newHandler(now time.Time, users []auth.User, src sources) http.Handler {
 		}
 		return appointments.Hours{Open: h.Open, Close: h.Close, Bays: s.Bays, Location: s.Location}, true
 	}
-	appointmentsH := appointments.NewHandler(appointments.NewService(hours, appointments.NewMemoryRepo(seed.Appointments(now))))
+	appointmentsH := appointments.NewHandler(appointments.NewService(hours, bookings))
 
 	owned := http.NewServeMux()
 	notifications.NewHandler(src.alerts).Register(owned)

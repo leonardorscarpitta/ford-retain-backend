@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ford-retain/backend/internal/appointments"
 	"github.com/ford-retain/backend/internal/fordapi"
 	"github.com/ford-retain/backend/internal/seed"
 )
@@ -42,7 +43,7 @@ func testAccessControl(t *testing.T, src sources) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := newHandler(time.Now(), users, src)
+	h := newHandler(users, src, appointments.NewMemoryRepo(seed.Appointments(time.Now())))
 
 	do := func(method, path, token, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
