@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -116,5 +117,57 @@ func TestHTTP(t *testing.T) {
 	do("POST", "/api/auth/logout", "", token)
 	if rec := do("GET", "/api/auth/me", "", token); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("after logout: want 401, got %d", rec.Code)
+	}
+}
+
+func TestLockout(t *testing.T) {
+	s := testService(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+
+	for i := 0; i < maxFailedLogins; i++ {
+		if _, _, err := s.Login("ana@example.com", "wrong"); err != ErrInvalidCredentials {
+			t.Fatalf("attempt %d: want ErrInvalidCredentials, got %v", i+1, err)
+		}
+	}
+	// Locked now — even the right password is refused, without checking it.
+	_, _, err := s.Login("ANA@example.com", "secret")
+	var locked *LockedError
+	if !errors.As(err, &locked) || !errors.Is(err, ErrTooManyAttempts) || locked.RetryAfter != lockoutWindow {
+		t.Fatalf("want lockout for the full window, got %v", err)
+	}
+
+	// Unknown emails lock the same way, so lockouts don't reveal accounts.
+	for i := 0; i < maxFailedLogins; i++ {
+		s.Login("ghost@example.com", "x")
+	}
+	if _, _, err := s.Login("ghost@example.com", "x"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("unknown email: want lockout, got %v", err)
+	}
+
+	// The window passes: the account works again and a success clears the count.
+	now = now.Add(lockoutWindow)
+	if _, _, err := s.Login("ana@example.com", "secret"); err != nil {
+		t.Fatalf("after window: %v", err)
+	}
+	for i := 0; i < maxFailedLogins-1; i++ {
+		s.Login("ana@example.com", "wrong")
+	}
+	if _, _, err := s.Login("ana@example.com", "secret"); err != nil {
+		t.Fatalf("below the limit a correct password must work: %v", err)
+	}
+}
+
+func TestLockoutHTTP(t *testing.T) {
+	h := NewHandler(testService(t))
+	mux := http.NewServeMux()
+	h.RegisterPublic(mux)
+	var rec *httptest.ResponseRecorder
+	for i := 0; i <= maxFailedLogins; i++ {
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"email":"ana@example.com","password":"bad"}`)))
+	}
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "900" {
+		t.Fatalf("want 429 with Retry-After 900, got %d %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
 }

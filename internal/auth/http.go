@@ -2,7 +2,9 @@ package auth
 
 import (
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/ford-retain/backend/internal/platform/httpx"
@@ -54,6 +56,12 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, u, err := h.svc.Login(in.Email, in.Password)
+	var locked *LockedError
+	if errors.As(err, &locked) {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(locked.RetryAfter.Seconds()))))
+		httpx.Error(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
 	if errors.Is(err, ErrInvalidCredentials) {
 		httpx.Error(w, http.StatusUnauthorized, err.Error())
 		return

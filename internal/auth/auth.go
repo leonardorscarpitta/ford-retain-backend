@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,22 @@ type User struct {
 
 var ErrInvalidCredentials = errors.New("invalid email or password")
 
+// ErrTooManyAttempts means the account is temporarily locked after repeated
+// failed logins. Use errors.As to get the RetryAfter duration.
+var ErrTooManyAttempts = errors.New("too many failed sign-in attempts")
+
+type LockedError struct{ RetryAfter time.Duration }
+
+func (e *LockedError) Error() string {
+	return fmt.Sprintf("%v; try again in %v", ErrTooManyAttempts, e.RetryAfter.Round(time.Second))
+}
+func (e *LockedError) Unwrap() error { return ErrTooManyAttempts }
+
+const (
+	maxFailedLogins = 5
+	lockoutWindow   = 15 * time.Minute
+)
+
 type session struct {
 	userID  string
 	expires time.Time
@@ -35,6 +52,7 @@ type Service struct {
 	// dummyHash is checked for unknown emails so failed logins take the same
 	// time whether or not the account exists.
 	dummyHash string
+	limits    *limiter
 
 	mu       sync.Mutex
 	sessions map[string]session // by SHA-256 of the token, never the token itself
@@ -47,6 +65,7 @@ func NewService(users []User, ttl time.Duration) *Service {
 		users:    make(map[string]User, len(users)),
 		byID:     make(map[string]User, len(users)),
 		sessions: make(map[string]session),
+		limits:   newLimiter(maxFailedLogins, lockoutWindow),
 	}
 	for _, u := range users {
 		s.users[strings.ToLower(u.Email)] = u
@@ -59,15 +78,25 @@ func NewService(users []User, ttl time.Duration) *Service {
 }
 
 // Login checks credentials and starts a session, returning its token.
+// Repeated failures for the same email lock it for a while (*LockedError),
+// whether or not the account exists.
 func (s *Service) Login(email, password string) (string, User, error) {
-	u, ok := s.users[strings.ToLower(strings.TrimSpace(email))]
+	key := strings.ToLower(strings.TrimSpace(email))
+	now := s.now()
+	if wait := s.limits.retryAfter(key, now); wait > 0 {
+		return "", User{}, &LockedError{RetryAfter: wait}
+	}
+	u, ok := s.users[key]
 	if !ok {
 		VerifyPassword(s.dummyHash, password)
+		s.limits.fail(key, now)
 		return "", User{}, ErrInvalidCredentials
 	}
 	if !VerifyPassword(u.PasswordHash, password) {
+		s.limits.fail(key, now)
 		return "", User{}, ErrInvalidCredentials
 	}
+	s.limits.reset(key)
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", User{}, err
