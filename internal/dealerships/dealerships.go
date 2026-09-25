@@ -17,8 +17,9 @@ type Dealership struct {
 	Rating   float64  `json:"rating"`
 	Hours    string   `json:"hours"`
 	Services []string `json:"services"`
-	// DistanceKm is only set when results are sorted by proximity.
-	DistanceKm float64 `json:"distanceKm,omitempty"`
+	// DistanceKm is only set when results are sorted by proximity (a pointer so
+	// a genuine 0 km is still sent).
+	DistanceKm *float64 `json:"distanceKm,omitempty"`
 }
 
 // Store is a read-only in-memory dealership directory.
@@ -43,9 +44,10 @@ func (s *Store) Exists(id string) bool {
 func (s *Store) Nearest(lat, lng float64) []Dealership {
 	out := s.All()
 	for i := range out {
-		out[i].DistanceKm = math.Round(haversineKm(lat, lng, out[i].Lat, out[i].Lng)*10) / 10
+		d := math.Round(haversineKm(lat, lng, out[i].Lat, out[i].Lng)*10) / 10
+		out[i].DistanceKm = &d
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].DistanceKm < out[j].DistanceKm })
+	sort.Slice(out, func(i, j int) bool { return *out[i].DistanceKm < *out[j].DistanceKm })
 	return out
 }
 

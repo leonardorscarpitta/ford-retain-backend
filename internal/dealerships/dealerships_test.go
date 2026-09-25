@@ -13,7 +13,14 @@ func TestNearestSortsByDistance(t *testing.T) {
 	if got[0].ID != "near" || got[1].ID != "far" {
 		t.Fatalf("want [near far], got [%s %s]", got[0].ID, got[1].ID)
 	}
-	if got[0].DistanceKm <= 0 || got[0].DistanceKm > 5 {
-		t.Errorf("unexpected distance to near dealership: %v", got[0].DistanceKm)
+	if d := got[0].DistanceKm; d == nil || *d <= 0 || *d > 5 {
+		t.Errorf("unexpected distance to near dealership: %v", d)
+	}
+}
+
+func TestNearestKeepsZeroDistance(t *testing.T) {
+	got := NewStore([]Dealership{{ID: "here", Lat: -22.9, Lng: -47.06}}).Nearest(-22.9, -47.06)
+	if got[0].DistanceKm == nil || *got[0].DistanceKm != 0 {
+		t.Fatalf("want distance 0, got %v", got[0].DistanceKm)
 	}
 }

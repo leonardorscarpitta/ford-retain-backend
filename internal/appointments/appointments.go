@@ -33,7 +33,10 @@ type DealershipChecker interface {
 	Exists(id string) bool
 }
 
-var ErrInvalid = errors.New("invalid appointment")
+var (
+	ErrInvalid  = errors.New("invalid appointment")
+	ErrNotFound = errors.New("appointment not found")
+)
 
 // When filters appointments by their scheduled time relative to now.
 type When string
@@ -113,4 +116,22 @@ func (s *Service) Create(vin string, in CreateInput) (Appointment, error) {
 	s.nextID++
 	s.items = append(s.items, a)
 	return a, nil
+}
+
+// Cancel removes an upcoming appointment. Past appointments are history and
+// can't be cancelled.
+func (s *Service) Cancel(vin, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, a := range s.items {
+		if a.ID != id || a.VIN != vin {
+			continue
+		}
+		if !a.ScheduledAt.After(s.now()) {
+			return fmt.Errorf("%w: past appointments can't be cancelled", ErrInvalid)
+		}
+		s.items = append(s.items[:i], s.items[i+1:]...)
+		return nil
+	}
+	return ErrNotFound
 }

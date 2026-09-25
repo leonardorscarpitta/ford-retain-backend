@@ -49,7 +49,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           httpx.CORS(allowedOrigin, mux),
+		Handler:           httpx.Log(httpx.CORS(allowedOrigin, mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

@@ -73,3 +73,25 @@ func TestListByVINFiltersAndSorts(t *testing.T) {
 		})
 	}
 }
+
+func TestCancel(t *testing.T) {
+	now := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	svc := NewService(fakeDealerships{}, []Appointment{
+		{ID: "future", VIN: "VIN1", ScheduledAt: now.Add(time.Hour)},
+		{ID: "past", VIN: "VIN1", ScheduledAt: now.Add(-time.Hour)},
+	})
+	svc.now = func() time.Time { return now }
+
+	if err := svc.Cancel("VIN2", "future"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("other vehicle's appointment: want ErrNotFound, got %v", err)
+	}
+	if err := svc.Cancel("VIN1", "past"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("past appointment: want ErrInvalid, got %v", err)
+	}
+	if err := svc.Cancel("VIN1", "future"); err != nil {
+		t.Fatalf("upcoming appointment: %v", err)
+	}
+	if got := svc.ListByVIN("VIN1", WhenUpcoming); len(got) != 0 {
+		t.Errorf("want no upcoming appointments after cancel, got %d", len(got))
+	}
+}
