@@ -15,8 +15,20 @@ const (
 	StatusCritical  Status = "critical"
 )
 
+// Zone is where a component sits on the vehicle, used to place it on a diagram.
+type Zone string
+
+const (
+	ZoneEngineBay  Zone = "engine-bay"
+	ZoneFrontWheel Zone = "front-wheel"
+	ZoneRearWheel  Zone = "rear-wheel"
+	ZoneUnderbody  Zone = "underbody"
+	ZoneCabin      Zone = "cabin"
+)
+
 type Component struct {
 	Name   string `json:"name"`
+	Zone   Zone   `json:"zone"`
 	Health int    `json:"health"` // 0-100
 	Status Status `json:"status"`
 }
@@ -24,10 +36,13 @@ type Component struct {
 type Battery struct {
 	HealthPercent       int `json:"healthPercent"`
 	EstimatedMonthsLeft int `json:"estimatedMonthsLeft"`
+	// History holds monthly health readings, oldest first.
+	History []int `json:"history"`
 }
 
 type Snapshot struct {
 	VIN        string      `json:"vin"`
+	Model      string      `json:"model"`
 	MileageKm  int         `json:"mileageKm"`
 	Battery    Battery     `json:"battery"`
 	Components []Component `json:"components"`

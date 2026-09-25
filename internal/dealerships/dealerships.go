@@ -13,6 +13,10 @@ type Dealership struct {
 	Phone   string  `json:"phone"`
 	Lat     float64 `json:"lat"`
 	Lng     float64 `json:"lng"`
+	// Rating is the average customer rating, 1-5.
+	Rating   float64  `json:"rating"`
+	Hours    string   `json:"hours"`
+	Services []string `json:"services"`
 	// DistanceKm is only set when results are sorted by proximity.
 	DistanceKm float64 `json:"distanceKm,omitempty"`
 }
