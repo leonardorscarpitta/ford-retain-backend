@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/ford-retain/backend/internal/seed"
 	"log/slog"
 	"net/http"
 	"os"
@@ -26,7 +27,7 @@ func main() {
 func run() error {
 	addr := env("ADDR", ":8080")
 	allowedOrigin := env("ALLOWED_ORIGIN", "http://localhost:3000")
-	users, err := seedUsers(auth.DefaultIterations)
+	users, err := seed.Users(auth.DefaultIterations)
 	if err != nil {
 		return err
 	}

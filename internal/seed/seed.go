@@ -1,4 +1,7 @@
-package main
+// Package seed holds the demo data: users, vehicles, telemetry, alerts,
+// dealerships and appointments. The API uses it in offline mode, and the
+// mock Ford API serves it.
+package seed
 
 import (
 	"fmt"
@@ -14,25 +17,25 @@ import (
 
 // Seeded vehicles. Ana owns the two F-150s, Bruno the Ranger.
 const (
-	f150VIN      = "1FTFW1E50NFA00001"
-	lightningVIN = "1FTVW1EL5PWG00002"
-	rangerVIN    = "1FTER4HH3RLE00003"
+	F150VIN      = "1FTFW1E50NFA00001"
+	LightningVIN = "1FTVW1EL5PWG00002"
+	RangerVIN    = "1FTER4HH3RLE00003"
 )
 
-// Demo accounts. Both use demoPassword; see the README.
+// Demo accounts. Both use DemoPassword; see the README.
 const (
-	anaID        = "u1"
-	brunoID      = "u2"
-	demoPassword = "ford-retain-demo"
+	AnaID        = "u1"
+	BrunoID      = "u2"
+	DemoPassword = "ford-retain-demo"
 )
 
-func seedUsers(iterations int) ([]auth.User, error) {
+func Users(iterations int) ([]auth.User, error) {
 	users := []auth.User{
-		{ID: anaID, Email: "ana@example.com", Name: "Ana Souza"},
-		{ID: brunoID, Email: "bruno@example.com", Name: "Bruno Lima"},
+		{ID: AnaID, Email: "ana@example.com", Name: "Ana Souza"},
+		{ID: BrunoID, Email: "bruno@example.com", Name: "Bruno Lima"},
 	}
 	for i := range users {
-		hash, err := auth.HashPassword(demoPassword, iterations)
+		hash, err := auth.HashPassword(DemoPassword, iterations)
 		if err != nil {
 			return nil, err
 		}
@@ -41,11 +44,11 @@ func seedUsers(iterations int) ([]auth.User, error) {
 	return users, nil
 }
 
-func seedVehicles() []vehicles.Vehicle {
+func Vehicles() []vehicles.Vehicle {
 	return []vehicles.Vehicle{
-		{VIN: f150VIN, OwnerID: anaID, Model: "2022 Ford F-150 Lariat PowerBoost", PaintName: "Rapid Red", PaintHex: "#b0121f"},
-		{VIN: lightningVIN, OwnerID: anaID, Model: "2023 Ford F-150 Lightning Platinum", PaintName: "Antimatter Blue", PaintHex: "#1c2d4f"},
-		{VIN: rangerVIN, OwnerID: brunoID, Model: "2024 Ford Ranger Raptor", PaintName: "Code Orange", PaintHex: "#e2581c"},
+		{VIN: F150VIN, OwnerID: AnaID, Model: "2022 Ford F-150 Lariat PowerBoost", PaintName: "Rapid Red", PaintHex: "#b0121f"},
+		{VIN: LightningVIN, OwnerID: AnaID, Model: "2023 Ford F-150 Lightning Platinum", PaintName: "Antimatter Blue", PaintHex: "#1c2d4f"},
+		{VIN: RangerVIN, OwnerID: BrunoID, Model: "2024 Ford Ranger Raptor", PaintName: "Code Orange", PaintHex: "#e2581c"},
 	}
 }
 
@@ -62,7 +65,7 @@ func mustLoadLocation(name string) *time.Location {
 	return loc
 }
 
-func seedNotifications(now time.Time) []notifications.Notification {
+func Notifications(now time.Time) []notifications.Notification {
 	const (
 		info     = notifications.SeverityInfo
 		warning  = notifications.SeverityWarning
@@ -110,7 +113,7 @@ func seedNotifications(now time.Time) []notifications.Notification {
 	groups := []struct {
 		vin   string
 		items []n
-	}{{f150VIN, f150}, {lightningVIN, lightning}, {rangerVIN, ranger}}
+	}{{F150VIN, f150}, {LightningVIN, lightning}, {RangerVIN, ranger}}
 
 	var out []notifications.Notification
 	for _, g := range groups {
@@ -130,14 +133,14 @@ func seedNotifications(now time.Time) []notifications.Notification {
 	return out
 }
 
-func seedTelemetry(now time.Time) []telemetry.Snapshot {
+func Telemetry(now time.Time) []telemetry.Snapshot {
 	const (
 		good      = telemetry.StatusGood
 		attention = telemetry.StatusAttention
 		critical  = telemetry.StatusCritical
 	)
 	return []telemetry.Snapshot{{
-		VIN:       f150VIN,
+		VIN:       F150VIN,
 		MileageKm: 48210,
 		Battery: telemetry.Battery{
 			HealthPercent:       78,
@@ -161,7 +164,7 @@ func seedTelemetry(now time.Time) []telemetry.Snapshot {
 		},
 		UpdatedAt: now.Add(-10 * time.Minute),
 	}, {
-		VIN:       lightningVIN,
+		VIN:       LightningVIN,
 		MileageKm: 12640,
 		Battery: telemetry.Battery{
 			HealthPercent:       97,
@@ -182,7 +185,7 @@ func seedTelemetry(now time.Time) []telemetry.Snapshot {
 		},
 		UpdatedAt: now.Add(-3 * time.Minute),
 	}, {
-		VIN:       rangerVIN,
+		VIN:       RangerVIN,
 		MileageKm: 21870,
 		Battery: telemetry.Battery{
 			HealthPercent:       88,
@@ -206,7 +209,7 @@ func seedTelemetry(now time.Time) []telemetry.Snapshot {
 	}}
 }
 
-func seedDealerships() []dealerships.Dealership {
+func Dealerships() []dealerships.Dealership {
 	saturdayMorning := dealerships.OpenHours{Open: 8, Close: 12}
 	longDay := dealerships.OpenHours{Open: 7, Close: 20}
 	var (
@@ -251,7 +254,7 @@ func seedDealerships() []dealerships.Dealership {
 	}
 }
 
-func seedAppointments(now time.Time) []appointments.Appointment {
+func Appointments(now time.Time) []appointments.Appointment {
 	// Anchor at 09:00 São Paulo time so seeded times look like real bookings.
 	local := now.In(saoPaulo)
 	base := time.Date(local.Year(), local.Month(), local.Day(), 9, 0, 0, 0, saoPaulo)
@@ -295,7 +298,7 @@ func seedAppointments(now time.Time) []appointments.Appointment {
 	groups := []struct {
 		vin   string
 		items []a
-	}{{f150VIN, f150}, {lightningVIN, lightning}, {rangerVIN, ranger}}
+	}{{F150VIN, f150}, {LightningVIN, lightning}, {RangerVIN, ranger}}
 
 	var out []appointments.Appointment
 	for _, g := range groups {

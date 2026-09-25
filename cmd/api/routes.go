@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/ford-retain/backend/internal/seed"
 	"net/http"
 	"time"
 
@@ -22,8 +23,8 @@ const sessionTTL = 7 * 24 * time.Hour
 //	owned    /api/vehicles/{vin}/…      — the VIN must be the user's (vehicles.RequireOwner)
 func newHandler(now time.Time, users []auth.User) http.Handler {
 	authH := auth.NewHandler(auth.NewService(users, sessionTTL))
-	vehiclesH := vehicles.NewHandler(vehicles.NewStore(seedVehicles()))
-	dealershipStore := dealerships.NewStore(seedDealerships())
+	vehiclesH := vehicles.NewHandler(vehicles.NewStore(seed.Vehicles()))
+	dealershipStore := dealerships.NewStore(seed.Dealerships())
 
 	// Scheduling reads opening hours through a function, so appointments
 	// doesn't depend on the dealerships package.
@@ -38,11 +39,11 @@ func newHandler(now time.Time, users []auth.User) http.Handler {
 		}
 		return appointments.Hours{Open: h.Open, Close: h.Close, Bays: s.Bays, Location: s.Location}, true
 	}
-	appointmentsH := appointments.NewHandler(appointments.NewService(hours, seedAppointments(now)))
+	appointmentsH := appointments.NewHandler(appointments.NewService(hours, seed.Appointments(now)))
 
 	owned := http.NewServeMux()
-	notifications.NewHandler(notifications.NewStore(seedNotifications(now))).Register(owned)
-	telemetry.NewHandler(telemetry.NewStore(seedTelemetry(now))).Register(owned)
+	notifications.NewHandler(notifications.NewStore(seed.Notifications(now))).Register(owned)
+	telemetry.NewHandler(telemetry.NewStore(seed.Telemetry(now))).Register(owned)
 	appointmentsH.Register(owned)
 
 	signed := http.NewServeMux()
