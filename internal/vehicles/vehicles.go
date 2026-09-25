@@ -2,6 +2,8 @@
 // to identify them (VIN, model, paint).
 package vehicles
 
+import "context"
+
 type Vehicle struct {
 	VIN     string `json:"vin"`
 	OwnerID string `json:"-"`
@@ -11,6 +13,30 @@ type Vehicle struct {
 	PaintHex  string `json:"paintHex"`
 }
 
+// Source is where ownership comes from: Store (seed data) offline, Ford's
+// vehicle registry in production.
+type Source interface {
+	// ForOwner returns the owner's vehicles, in order.
+	ForOwner(ctx context.Context, ownerID string) ([]Vehicle, error)
+}
+
+// Owned returns the vehicle if it belongs to the owner.
+func Owned(ctx context.Context, src Source, ownerID, vin string) (Vehicle, bool, error) {
+	if ownerID == "" {
+		return Vehicle{}, false, nil
+	}
+	list, err := src.ForOwner(ctx, ownerID)
+	if err != nil {
+		return Vehicle{}, false, err
+	}
+	for _, v := range list {
+		if v.VIN == vin {
+			return v, true, nil
+		}
+	}
+	return Vehicle{}, false, nil
+}
+
 // Store is a read-only in-memory registry of vehicles. Order is preserved:
 // an owner's first vehicle is their default.
 type Store struct{ items []Vehicle }
@@ -18,22 +44,12 @@ type Store struct{ items []Vehicle }
 func NewStore(seed []Vehicle) *Store { return &Store{items: seed} }
 
 // ForOwner returns the owner's vehicles, in order.
-func (s *Store) ForOwner(ownerID string) []Vehicle {
+func (s *Store) ForOwner(_ context.Context, ownerID string) ([]Vehicle, error) {
 	out := []Vehicle{}
 	for _, v := range s.items {
 		if v.OwnerID == ownerID {
 			out = append(out, v)
 		}
 	}
-	return out
-}
-
-// Owned returns the vehicle if it exists and belongs to the owner.
-func (s *Store) Owned(ownerID, vin string) (Vehicle, bool) {
-	for _, v := range s.items {
-		if v.VIN == vin && v.OwnerID == ownerID && ownerID != "" {
-			return v, true
-		}
-	}
-	return Vehicle{}, false
+	return out, nil
 }

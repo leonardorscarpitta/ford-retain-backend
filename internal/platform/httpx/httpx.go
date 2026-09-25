@@ -22,6 +22,13 @@ func Error(w http.ResponseWriter, status int, msg string) {
 	JSON(w, status, map[string]string{"error": msg})
 }
 
+// Upstream reports that a service this API depends on (such as Ford's
+// platform) failed. The cause is logged, not shown to the caller.
+func Upstream(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Error("upstream call failed", "method", r.Method, "path", r.URL.Path, "err", err)
+	Error(w, http.StatusBadGateway, "a Ford service is unavailable, please try again")
+}
+
 // Decode reads a JSON request body into v, rejecting unknown fields.
 func Decode(w http.ResponseWriter, r *http.Request, v any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))

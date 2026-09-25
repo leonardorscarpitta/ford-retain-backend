@@ -3,6 +3,7 @@
 package telemetry
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -48,6 +49,12 @@ type Snapshot struct {
 	UpdatedAt  time.Time   `json:"updatedAt"`
 }
 
+// Source is where telemetry comes from: Store (seed data) offline, Ford's
+// connected-vehicle API in production.
+type Source interface {
+	Get(ctx context.Context, vin string) (Snapshot, bool, error)
+}
+
 // Store is an in-memory telemetry repository keyed by VIN.
 type Store struct {
 	mu    sync.RWMutex
@@ -62,9 +69,9 @@ func NewStore(seed []Snapshot) *Store {
 	return &Store{byVIN: m}
 }
 
-func (s *Store) Get(vin string) (Snapshot, bool) {
+func (s *Store) Get(_ context.Context, vin string) (Snapshot, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snap, ok := s.byVIN[vin]
-	return snap, ok
+	return snap, ok, nil
 }

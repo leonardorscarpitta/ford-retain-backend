@@ -1,7 +1,9 @@
 package vehicles
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -48,6 +50,28 @@ func TestHTTP(t *testing.T) {
 	for _, tt := range tests {
 		if rec := as(tt.user, tt.path); rec.Code != tt.want {
 			t.Errorf("%s %s: want %d, got %d", tt.user, tt.path, tt.want, rec.Code)
+		}
+	}
+}
+
+type failing struct{}
+
+func (failing) ForOwner(context.Context, string) ([]Vehicle, error) {
+	return nil, errors.New("ford down")
+}
+
+func TestUpstreamFailure(t *testing.T) {
+	h := NewHandler(failing{})
+	mux := http.NewServeMux()
+	h.Register(mux)
+	mux.Handle("/api/vehicles/{vin}/", h.RequireOwner(http.NotFoundHandler()))
+	for _, path := range []string{"/api/vehicles", "/api/vehicles/A", "/api/vehicles/A/telemetry"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req = req.WithContext(identity.WithUserID(req.Context(), "ana"))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadGateway {
+			t.Errorf("%s: want 502, got %d", path, rec.Code)
 		}
 	}
 }
