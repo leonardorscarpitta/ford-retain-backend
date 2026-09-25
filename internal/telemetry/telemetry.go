@@ -42,7 +42,6 @@ type Battery struct {
 
 type Snapshot struct {
 	VIN        string      `json:"vin"`
-	Model      string      `json:"model"`
 	MileageKm  int         `json:"mileageKm"`
 	Battery    Battery     `json:"battery"`
 	Components []Component `json:"components"`

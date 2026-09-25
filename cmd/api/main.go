@@ -16,6 +16,7 @@ import (
 	"github.com/ford-retain/backend/internal/notifications"
 	"github.com/ford-retain/backend/internal/platform/httpx"
 	"github.com/ford-retain/backend/internal/telemetry"
+	"github.com/ford-retain/backend/internal/vehicles"
 )
 
 func main() {
@@ -33,6 +34,7 @@ func run() error {
 	// Wire modules. Each module owns its data and registers its own routes.
 	dealershipStore := dealerships.NewStore(seedDealerships())
 	modules := []interface{ Register(*http.ServeMux) }{
+		vehicles.NewHandler(vehicles.NewStore(seedVehicles())),
 		notifications.NewHandler(notifications.NewStore(seedNotifications(now))),
 		telemetry.NewHandler(telemetry.NewStore(seedTelemetry(now))),
 		dealerships.NewHandler(dealershipStore),
@@ -58,7 +60,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", addr, "demoVIN", demoVIN)
+		slog.Info("listening", "addr", addr)
 		errCh <- srv.ListenAndServe()
 	}()
 

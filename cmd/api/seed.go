@@ -8,10 +8,23 @@ import (
 	"github.com/ford-retain/backend/internal/dealerships"
 	"github.com/ford-retain/backend/internal/notifications"
 	"github.com/ford-retain/backend/internal/telemetry"
+	"github.com/ford-retain/backend/internal/vehicles"
 )
 
-// demoVIN is the single vehicle seeded for local development.
-const demoVIN = "1FTFW1E50NFA00001"
+// The owner's garage, seeded for local development. The first is the default.
+const (
+	f150VIN      = "1FTFW1E50NFA00001"
+	lightningVIN = "1FTVW1EL5PWG00002"
+	rangerVIN    = "1FTER4HH3RLE00003"
+)
+
+func seedVehicles() []vehicles.Vehicle {
+	return []vehicles.Vehicle{
+		{VIN: f150VIN, Model: "2022 Ford F-150 Lariat PowerBoost", PaintName: "Rapid Red", PaintHex: "#b0121f"},
+		{VIN: lightningVIN, Model: "2023 Ford F-150 Lightning Platinum", PaintName: "Antimatter Blue", PaintHex: "#1c2d4f"},
+		{VIN: rangerVIN, Model: "2024 Ford Ranger Raptor", PaintName: "Code Orange", PaintHex: "#e2581c"},
+	}
+}
 
 const day = 24 * time.Hour
 
@@ -28,7 +41,7 @@ func seedNotifications(now time.Time) []notifications.Notification {
 		title    string
 		message  string
 	}
-	items := []n{
+	f150 := []n{
 		{25 * time.Minute, critical, false, "Front brake pads worn", "Front brake pads are at 15%. Braking distance may increase. Book a replacement as soon as possible."},
 		{3 * time.Hour, critical, false, "Tyre pressure low — front left", "Front-left tyre is at 24 PSI (recommended 35). Check for punctures before long trips."},
 		{9 * time.Hour, warning, false, "Engine oil life at 40%", "Your next oil change is due in about 1,200 km."},
@@ -46,17 +59,38 @@ func seedNotifications(now time.Time) []notifications.Notification {
 		{44 * day, info, true, "Warranty extended", "Your powertrain warranty is valid until March 2028."},
 		{58 * day, info, true, "Welcome to Ford Retain", "You'll receive maintenance alerts here and on WhatsApp."},
 	}
-	out := make([]notifications.Notification, len(items))
-	for i, it := range items {
-		out[i] = notifications.Notification{
-			ID:        fmt.Sprintf("n%d", i+1),
-			VIN:       demoVIN,
-			Title:     it.title,
-			Message:   it.message,
-			Severity:  it.severity,
-			Channel:   "whatsapp",
-			Read:      it.read,
-			CreatedAt: now.Add(-it.ago),
+	lightning := []n{
+		{2 * time.Hour, info, false, "Charged to 90%", "Charging finished at home. Estimated range 480 km."},
+		{20 * time.Hour, warning, false, "Tyre pressure low — rear right", "Rear-right tyre is at 38 PSI (recommended 42). Low pressure reduces range."},
+		{5 * day, info, true, "Over-the-air update installed", "Ford Power-Up 8.4 improved charging-curve accuracy."},
+		{11 * day, info, true, "Battery conditioning tip", "Pre-condition while plugged in on cold mornings to protect range."},
+		{30 * day, info, true, "Welcome to Ford Retain", "You'll receive maintenance alerts here and on WhatsApp."},
+	}
+	ranger := []n{
+		{50 * time.Minute, critical, false, "Engine air filter clogged", "Airflow restriction is high after off-road use. Replace the filter before your next trail run."},
+		{6 * time.Hour, warning, false, "Rear shock absorbers worn", "Fox shocks show reduced damping. Inspect after heavy off-road use."},
+		{2 * day, warning, false, "Tyre sidewall damage — front right", "Sensor detected a pressure drop pattern consistent with a sidewall cut."},
+		{8 * day, info, true, "Trail mode summary", "Baja mode used for 3 h 20 min this week."},
+		{40 * day, info, true, "Welcome to Ford Retain", "You'll receive maintenance alerts here and on WhatsApp."},
+	}
+	groups := []struct {
+		vin   string
+		items []n
+	}{{f150VIN, f150}, {lightningVIN, lightning}, {rangerVIN, ranger}}
+
+	var out []notifications.Notification
+	for _, g := range groups {
+		for _, it := range g.items {
+			out = append(out, notifications.Notification{
+				ID:        fmt.Sprintf("n%d", len(out)+1),
+				VIN:       g.vin,
+				Title:     it.title,
+				Message:   it.message,
+				Severity:  it.severity,
+				Channel:   "whatsapp",
+				Read:      it.read,
+				CreatedAt: now.Add(-it.ago),
+			})
 		}
 	}
 	return out
@@ -69,8 +103,7 @@ func seedTelemetry(now time.Time) []telemetry.Snapshot {
 		critical  = telemetry.StatusCritical
 	)
 	return []telemetry.Snapshot{{
-		VIN:       demoVIN,
-		Model:     "2022 Ford F-150 Lariat",
+		VIN:       f150VIN,
 		MileageKm: 48210,
 		Battery: telemetry.Battery{
 			HealthPercent:       78,
@@ -93,6 +126,49 @@ func seedTelemetry(now time.Time) []telemetry.Snapshot {
 			{Name: "Wiper blades", Zone: telemetry.ZoneCabin, Health: 30, Status: attention},
 		},
 		UpdatedAt: now.Add(-10 * time.Minute),
+	}, {
+		VIN:       lightningVIN,
+		MileageKm: 12640,
+		Battery: telemetry.Battery{
+			HealthPercent:       97,
+			EstimatedMonthsLeft: 96,
+			History:             []int{100, 100, 99, 99, 99, 98, 98, 98, 97, 97, 97, 97},
+		},
+		Components: []telemetry.Component{
+			{Name: "Front electric motor", Zone: telemetry.ZoneEngineBay, Health: 98, Status: good},
+			{Name: "Battery coolant loop", Zone: telemetry.ZoneEngineBay, Health: 91, Status: good},
+			{Name: "Front brakes", Zone: telemetry.ZoneFrontWheel, Health: 94, Status: good},
+			{Name: "Front tyres", Zone: telemetry.ZoneFrontWheel, Health: 82, Status: good},
+			{Name: "Rear brakes", Zone: telemetry.ZoneRearWheel, Health: 95, Status: good},
+			{Name: "Rear tyres", Zone: telemetry.ZoneRearWheel, Health: 64, Status: attention},
+			{Name: "Rear electric motor", Zone: telemetry.ZoneUnderbody, Health: 97, Status: good},
+			{Name: "Traction battery pack", Zone: telemetry.ZoneUnderbody, Health: 97, Status: good},
+			{Name: "Suspension", Zone: telemetry.ZoneUnderbody, Health: 93, Status: good},
+			{Name: "Cabin air filter", Zone: telemetry.ZoneCabin, Health: 85, Status: good},
+		},
+		UpdatedAt: now.Add(-3 * time.Minute),
+	}, {
+		VIN:       rangerVIN,
+		MileageKm: 21870,
+		Battery: telemetry.Battery{
+			HealthPercent:       88,
+			EstimatedMonthsLeft: 30,
+			History:             []int{97, 96, 96, 95, 94, 93, 92, 92, 91, 90, 89, 88},
+		},
+		Components: []telemetry.Component{
+			{Name: "Engine", Zone: telemetry.ZoneEngineBay, Health: 90, Status: good},
+			{Name: "Engine oil", Zone: telemetry.ZoneEngineBay, Health: 62, Status: good},
+			{Name: "Engine air filter", Zone: telemetry.ZoneEngineBay, Health: 12, Status: critical},
+			{Name: "Front brakes", Zone: telemetry.ZoneFrontWheel, Health: 71, Status: good},
+			{Name: "Front tyres", Zone: telemetry.ZoneFrontWheel, Health: 38, Status: attention},
+			{Name: "Rear brakes", Zone: telemetry.ZoneRearWheel, Health: 74, Status: good},
+			{Name: "Rear tyres", Zone: telemetry.ZoneRearWheel, Health: 55, Status: attention},
+			{Name: "Transmission", Zone: telemetry.ZoneUnderbody, Health: 86, Status: good},
+			{Name: "Suspension (Fox shocks)", Zone: telemetry.ZoneUnderbody, Health: 41, Status: attention},
+			{Name: "Skid plates", Zone: telemetry.ZoneUnderbody, Health: 58, Status: attention},
+			{Name: "Cabin air filter", Zone: telemetry.ZoneCabin, Health: 66, Status: good},
+		},
+		UpdatedAt: now.Add(-42 * time.Minute),
 	}}
 }
 
@@ -149,7 +225,7 @@ func seedAppointments(now time.Time) []appointments.Appointment {
 		service    string
 		notes      string
 	}
-	items := []a{
+	f150 := []a{
 		// upcoming
 		{2, 1, "d1", "Front brake pads replacement", "Critical alert from telemetry"},
 		{9, 5, "d4", "Tyre replacement (front pair)", ""},
@@ -168,17 +244,35 @@ func seedAppointments(now time.Time) []appointments.Appointment {
 		{-610, 3, "d8", "Software update (SYNC 4)", ""},
 		{-700, 0, "d1", "10,000 km revision", "First revision"},
 	}
-	out := make([]appointments.Appointment, len(items))
-	for i, it := range items {
-		at := base.Add(time.Duration(it.days)*day + time.Duration(it.hour)*time.Hour)
-		out[i] = appointments.Appointment{
-			ID:           fmt.Sprintf("apt-seed-%d", i+1),
-			VIN:          demoVIN,
-			DealershipID: it.dealership,
-			ScheduledAt:  at,
-			Service:      it.service,
-			Notes:        it.notes,
-			CreatedAt:    at.Add(-14 * day),
+	lightning := []a{
+		{21, 2, "d4", "Tyre rotation", "Rear tyres wearing faster"},
+		{-90, 1, "d4", "EV system check", ""},
+		{-200, 3, "d14", "10,000 km EV revision", ""},
+	}
+	ranger := []a{
+		{4, 0, "d8", "Engine air filter replacement", "After Serra do Mar trail"},
+		{-45, 2, "d15", "Suspension inspection", "Knocking over washboard roads"},
+		{-160, 1, "d8", "10,000 km revision", ""},
+		{-300, 4, "d19", "Skid plate repair", ""},
+	}
+	groups := []struct {
+		vin   string
+		items []a
+	}{{f150VIN, f150}, {lightningVIN, lightning}, {rangerVIN, ranger}}
+
+	var out []appointments.Appointment
+	for _, g := range groups {
+		for _, it := range g.items {
+			at := base.Add(time.Duration(it.days)*day + time.Duration(it.hour)*time.Hour)
+			out = append(out, appointments.Appointment{
+				ID:           fmt.Sprintf("apt-seed-%d", len(out)+1),
+				VIN:          g.vin,
+				DealershipID: it.dealership,
+				ScheduledAt:  at,
+				Service:      it.service,
+				Notes:        it.notes,
+				CreatedAt:    at.Add(-14 * day),
+			})
 		}
 	}
 	return out
