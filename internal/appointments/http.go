@@ -3,6 +3,8 @@ package appointments
 import (
 	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/ford-retain/backend/internal/platform/httpx"
 )
@@ -11,6 +13,13 @@ type Handler struct{ svc *Service }
 
 func NewHandler(s *Service) *Handler { return &Handler{svc: s} }
 
+// RegisterAvailability adds the availability route. It isn't tied to a
+// vehicle, so mount it with the other signed-in routes.
+func (h *Handler) RegisterAvailability(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/dealerships/{id}/availability", h.availability)
+}
+
+// Register adds the vehicle-scoped routes (mount behind the ownership guard).
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/vehicles/{vin}/appointments", h.list)
 	mux.HandleFunc("POST /api/vehicles/{vin}/appointments", h.create)
@@ -57,4 +66,44 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+const maxAvailabilityDays = 31
+
+type availabilityResponse struct {
+	DealershipID string `json:"dealershipId"`
+	TimeZone     string `json:"timeZone"`
+	Days         []Day  `json:"days"`
+}
+
+// availability returns bookable slots: ?from=YYYY-MM-DD (default today) and
+// ?days=N (default 14, max 31).
+func (h *Handler) availability(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	days := 14
+	if v := q.Get("days"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > maxAvailabilityDays {
+			httpx.Error(w, http.StatusBadRequest, "days must be between 1 and 31")
+			return
+		}
+		days = n
+	}
+	from := h.svc.now()
+	if v := q.Get("from"); v != "" {
+		d, err := time.Parse(time.DateOnly, v)
+		if err != nil {
+			httpx.Error(w, http.StatusBadRequest, "from must be a date (YYYY-MM-DD)")
+			return
+		}
+		// Midday UTC lands on the same calendar date in every Americas zone.
+		from = time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, time.UTC)
+	}
+	id := r.PathValue("id")
+	out, loc, err := h.svc.Availability(id, from, days)
+	if errors.Is(err, ErrUnknownDealership) {
+		httpx.Error(w, http.StatusNotFound, "dealership not found")
+		return
+	}
+	httpx.JSON(w, http.StatusOK, availabilityResponse{DealershipID: id, TimeZone: loc.String(), Days: out})
 }

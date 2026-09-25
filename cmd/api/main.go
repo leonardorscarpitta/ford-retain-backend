@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the distroless image has no zoneinfo; dealerships need America/Sao_Paulo
 
 	"github.com/ford-retain/backend/internal/auth"
 	"github.com/ford-retain/backend/internal/platform/httpx"

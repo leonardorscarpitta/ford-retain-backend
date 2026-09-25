@@ -15,8 +15,10 @@ type Dealership struct {
 	Lng     float64 `json:"lng"`
 	// Rating is the average customer rating, 1-5.
 	Rating   float64  `json:"rating"`
-	Hours    string   `json:"hours"`
 	Services []string `json:"services"`
+	// Hours is Schedule in words, filled in by NewStore.
+	Hours    string   `json:"hours"`
+	Schedule Schedule `json:"-"`
 	// DistanceKm is only set when results are sorted by proximity (a pointer so
 	// a genuine 0 km is still sent).
 	DistanceKm *float64 `json:"distanceKm,omitempty"`
@@ -25,19 +27,25 @@ type Dealership struct {
 // Store is a read-only in-memory dealership directory.
 type Store struct{ items []Dealership }
 
-func NewStore(seed []Dealership) *Store { return &Store{items: seed} }
+func NewStore(seed []Dealership) *Store {
+	for i := range seed {
+		seed[i].Hours = seed[i].Schedule.String()
+	}
+	return &Store{items: seed}
+}
+
+// ScheduleOf returns a dealership's opening schedule.
+func (s *Store) ScheduleOf(id string) (Schedule, bool) {
+	for _, d := range s.items {
+		if d.ID == id {
+			return d.Schedule, true
+		}
+	}
+	return Schedule{}, false
+}
 
 func (s *Store) All() []Dealership {
 	return append([]Dealership(nil), s.items...)
-}
-
-func (s *Store) Exists(id string) bool {
-	for _, d := range s.items {
-		if d.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 // Nearest returns every dealership sorted by distance from (lat, lng).

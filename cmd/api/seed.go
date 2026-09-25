@@ -51,6 +51,17 @@ func seedVehicles() []vehicles.Vehicle {
 
 const day = 24 * time.Hour
 
+// All seeded dealerships are in São Paulo time (BRT, UTC−3).
+var saoPaulo = mustLoadLocation("America/Sao_Paulo")
+
+func mustLoadLocation(name string) *time.Location {
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		panic(err)
+	}
+	return loc
+}
+
 func seedNotifications(now time.Time) []notifications.Notification {
 	const (
 		info     = notifications.SeverityInfo
@@ -196,9 +207,11 @@ func seedTelemetry(now time.Time) []telemetry.Snapshot {
 }
 
 func seedDealerships() []dealerships.Dealership {
-	const (
-		weekday  = "Mon–Fri 8:00–18:00 · Sat 8:00–12:00"
-		extended = "Mon–Sat 7:00–20:00"
+	saturdayMorning := dealerships.OpenHours{Open: 8, Close: 12}
+	longDay := dealerships.OpenHours{Open: 7, Close: 20}
+	var (
+		weekday  = dealerships.Schedule{Location: saoPaulo, Weekdays: dealerships.OpenHours{Open: 8, Close: 18}, Saturday: &saturdayMorning, Bays: 2}
+		extended = dealerships.Schedule{Location: saoPaulo, Weekdays: longDay, Saturday: &longDay, Bays: 3}
 	)
 	var (
 		full    = []string{"Maintenance", "Brakes", "Tyres", "Battery", "Diagnostics", "Body shop"}
@@ -208,39 +221,40 @@ func seedDealerships() []dealerships.Dealership {
 	)
 	return []dealerships.Dealership{
 		// São Paulo city
-		{ID: "d1", Name: "Ford Paulista", Address: "Av. Paulista, 1000 - Bela Vista, São Paulo, SP", Phone: "+55 11 3000-0001", Lat: -23.5631, Lng: -46.6544, Rating: 4.8, Hours: extended, Services: full},
-		{ID: "d2", Name: "Ford Pinheiros", Address: "R. dos Pinheiros, 500 - Pinheiros, São Paulo, SP", Phone: "+55 11 3000-0002", Lat: -23.5667, Lng: -46.6920, Rating: 4.6, Hours: weekday, Services: service},
-		{ID: "d3", Name: "Ford Santo Amaro", Address: "Av. Santo Amaro, 3000 - Brooklin, São Paulo, SP", Phone: "+55 11 3000-0003", Lat: -23.6150, Lng: -46.6660, Rating: 4.5, Hours: weekday, Services: full},
-		{ID: "d4", Name: "Ford Moema", Address: "Av. Ibirapuera, 2200 - Moema, São Paulo, SP", Phone: "+55 11 3000-0004", Lat: -23.6010, Lng: -46.6650, Rating: 4.7, Hours: extended, Services: ev},
-		{ID: "d5", Name: "Ford Tatuapé", Address: "R. Tuiuti, 1500 - Tatuapé, São Paulo, SP", Phone: "+55 11 3000-0005", Lat: -23.5405, Lng: -46.5760, Rating: 4.4, Hours: weekday, Services: service},
-		{ID: "d6", Name: "Ford Santana", Address: "Av. Cruzeiro do Sul, 3100 - Santana, São Paulo, SP", Phone: "+55 11 3000-0006", Lat: -23.5020, Lng: -46.6250, Rating: 4.3, Hours: weekday, Services: quick},
-		{ID: "d7", Name: "Ford Lapa", Address: "R. Guaicurus, 800 - Lapa, São Paulo, SP", Phone: "+55 11 3000-0007", Lat: -23.5260, Lng: -46.7040, Rating: 4.5, Hours: weekday, Services: service},
-		{ID: "d8", Name: "Ford Morumbi", Address: "Av. Giovanni Gronchi, 5000 - Morumbi, São Paulo, SP", Phone: "+55 11 3000-0008", Lat: -23.6180, Lng: -46.7350, Rating: 4.9, Hours: extended, Services: full},
-		{ID: "d9", Name: "Ford Ipiranga", Address: "Av. Nazaré, 1200 - Ipiranga, São Paulo, SP", Phone: "+55 11 3000-0009", Lat: -23.5870, Lng: -46.6080, Rating: 4.2, Hours: weekday, Services: quick},
-		{ID: "d10", Name: "Ford Mooca", Address: "R. da Mooca, 2600 - Mooca, São Paulo, SP", Phone: "+55 11 3000-0010", Lat: -23.5570, Lng: -46.5990, Rating: 4.4, Hours: weekday, Services: service},
+		{ID: "d1", Name: "Ford Paulista", Address: "Av. Paulista, 1000 - Bela Vista, São Paulo, SP", Phone: "+55 11 3000-0001", Lat: -23.5631, Lng: -46.6544, Rating: 4.8, Schedule: extended, Services: full},
+		{ID: "d2", Name: "Ford Pinheiros", Address: "R. dos Pinheiros, 500 - Pinheiros, São Paulo, SP", Phone: "+55 11 3000-0002", Lat: -23.5667, Lng: -46.6920, Rating: 4.6, Schedule: weekday, Services: service},
+		{ID: "d3", Name: "Ford Santo Amaro", Address: "Av. Santo Amaro, 3000 - Brooklin, São Paulo, SP", Phone: "+55 11 3000-0003", Lat: -23.6150, Lng: -46.6660, Rating: 4.5, Schedule: weekday, Services: full},
+		{ID: "d4", Name: "Ford Moema", Address: "Av. Ibirapuera, 2200 - Moema, São Paulo, SP", Phone: "+55 11 3000-0004", Lat: -23.6010, Lng: -46.6650, Rating: 4.7, Schedule: extended, Services: ev},
+		{ID: "d5", Name: "Ford Tatuapé", Address: "R. Tuiuti, 1500 - Tatuapé, São Paulo, SP", Phone: "+55 11 3000-0005", Lat: -23.5405, Lng: -46.5760, Rating: 4.4, Schedule: weekday, Services: service},
+		{ID: "d6", Name: "Ford Santana", Address: "Av. Cruzeiro do Sul, 3100 - Santana, São Paulo, SP", Phone: "+55 11 3000-0006", Lat: -23.5020, Lng: -46.6250, Rating: 4.3, Schedule: weekday, Services: quick},
+		{ID: "d7", Name: "Ford Lapa", Address: "R. Guaicurus, 800 - Lapa, São Paulo, SP", Phone: "+55 11 3000-0007", Lat: -23.5260, Lng: -46.7040, Rating: 4.5, Schedule: weekday, Services: service},
+		{ID: "d8", Name: "Ford Morumbi", Address: "Av. Giovanni Gronchi, 5000 - Morumbi, São Paulo, SP", Phone: "+55 11 3000-0008", Lat: -23.6180, Lng: -46.7350, Rating: 4.9, Schedule: extended, Services: full},
+		{ID: "d9", Name: "Ford Ipiranga", Address: "Av. Nazaré, 1200 - Ipiranga, São Paulo, SP", Phone: "+55 11 3000-0009", Lat: -23.5870, Lng: -46.6080, Rating: 4.2, Schedule: weekday, Services: quick},
+		{ID: "d10", Name: "Ford Mooca", Address: "R. da Mooca, 2600 - Mooca, São Paulo, SP", Phone: "+55 11 3000-0010", Lat: -23.5570, Lng: -46.5990, Rating: 4.4, Schedule: weekday, Services: service},
 		// Greater São Paulo
-		{ID: "d11", Name: "Ford Osasco", Address: "Av. dos Autonomistas, 1800 - Osasco, SP", Phone: "+55 11 3000-0011", Lat: -23.5320, Lng: -46.7760, Rating: 4.3, Hours: weekday, Services: full},
-		{ID: "d12", Name: "Ford Guarulhos", Address: "Av. Tiradentes, 900 - Guarulhos, SP", Phone: "+55 11 3000-0012", Lat: -23.4630, Lng: -46.5330, Rating: 4.1, Hours: extended, Services: service},
-		{ID: "d13", Name: "Ford São Bernardo", Address: "Av. Kennedy, 700 - São Bernardo do Campo, SP", Phone: "+55 11 3000-0013", Lat: -23.6940, Lng: -46.5650, Rating: 4.6, Hours: weekday, Services: full},
-		{ID: "d14", Name: "Ford Santo André", Address: "Av. Industrial, 1500 - Santo André, SP", Phone: "+55 11 3000-0014", Lat: -23.6640, Lng: -46.5380, Rating: 4.5, Hours: weekday, Services: ev},
-		{ID: "d15", Name: "Ford Barueri", Address: "Al. Rio Negro, 400 - Alphaville, Barueri, SP", Phone: "+55 11 3000-0015", Lat: -23.5020, Lng: -46.8490, Rating: 4.8, Hours: extended, Services: ev},
+		{ID: "d11", Name: "Ford Osasco", Address: "Av. dos Autonomistas, 1800 - Osasco, SP", Phone: "+55 11 3000-0011", Lat: -23.5320, Lng: -46.7760, Rating: 4.3, Schedule: weekday, Services: full},
+		{ID: "d12", Name: "Ford Guarulhos", Address: "Av. Tiradentes, 900 - Guarulhos, SP", Phone: "+55 11 3000-0012", Lat: -23.4630, Lng: -46.5330, Rating: 4.1, Schedule: extended, Services: service},
+		{ID: "d13", Name: "Ford São Bernardo", Address: "Av. Kennedy, 700 - São Bernardo do Campo, SP", Phone: "+55 11 3000-0013", Lat: -23.6940, Lng: -46.5650, Rating: 4.6, Schedule: weekday, Services: full},
+		{ID: "d14", Name: "Ford Santo André", Address: "Av. Industrial, 1500 - Santo André, SP", Phone: "+55 11 3000-0014", Lat: -23.6640, Lng: -46.5380, Rating: 4.5, Schedule: weekday, Services: ev},
+		{ID: "d15", Name: "Ford Barueri", Address: "Al. Rio Negro, 400 - Alphaville, Barueri, SP", Phone: "+55 11 3000-0015", Lat: -23.5020, Lng: -46.8490, Rating: 4.8, Schedule: extended, Services: ev},
 		// São Paulo state
-		{ID: "d16", Name: "Ford Campinas", Address: "Av. Norte-Sul, 200 - Campinas, SP", Phone: "+55 19 3000-0016", Lat: -22.9056, Lng: -47.0608, Rating: 4.6, Hours: weekday, Services: full},
-		{ID: "d17", Name: "Ford Jundiaí", Address: "Av. Jundiaí, 1100 - Jundiaí, SP", Phone: "+55 11 3000-0017", Lat: -23.1860, Lng: -46.8840, Rating: 4.4, Hours: weekday, Services: service},
-		{ID: "d18", Name: "Ford Sorocaba", Address: "Av. Itavuvu, 2000 - Sorocaba, SP", Phone: "+55 15 3000-0018", Lat: -23.5010, Lng: -47.4580, Rating: 4.3, Hours: weekday, Services: service},
-		{ID: "d19", Name: "Ford Santos", Address: "Av. Ana Costa, 300 - Santos, SP", Phone: "+55 13 3000-0019", Lat: -23.9600, Lng: -46.3330, Rating: 4.7, Hours: extended, Services: full},
-		{ID: "d20", Name: "Ford São José dos Campos", Address: "Av. Andrômeda, 1500 - São José dos Campos, SP", Phone: "+55 12 3000-0020", Lat: -23.2240, Lng: -45.9000, Rating: 4.5, Hours: weekday, Services: ev},
-		{ID: "d21", Name: "Ford Ribeirão Preto", Address: "Av. Presidente Vargas, 2500 - Ribeirão Preto, SP", Phone: "+55 16 3000-0021", Lat: -21.2000, Lng: -47.8100, Rating: 4.6, Hours: weekday, Services: full},
+		{ID: "d16", Name: "Ford Campinas", Address: "Av. Norte-Sul, 200 - Campinas, SP", Phone: "+55 19 3000-0016", Lat: -22.9056, Lng: -47.0608, Rating: 4.6, Schedule: weekday, Services: full},
+		{ID: "d17", Name: "Ford Jundiaí", Address: "Av. Jundiaí, 1100 - Jundiaí, SP", Phone: "+55 11 3000-0017", Lat: -23.1860, Lng: -46.8840, Rating: 4.4, Schedule: weekday, Services: service},
+		{ID: "d18", Name: "Ford Sorocaba", Address: "Av. Itavuvu, 2000 - Sorocaba, SP", Phone: "+55 15 3000-0018", Lat: -23.5010, Lng: -47.4580, Rating: 4.3, Schedule: weekday, Services: service},
+		{ID: "d19", Name: "Ford Santos", Address: "Av. Ana Costa, 300 - Santos, SP", Phone: "+55 13 3000-0019", Lat: -23.9600, Lng: -46.3330, Rating: 4.7, Schedule: extended, Services: full},
+		{ID: "d20", Name: "Ford São José dos Campos", Address: "Av. Andrômeda, 1500 - São José dos Campos, SP", Phone: "+55 12 3000-0020", Lat: -23.2240, Lng: -45.9000, Rating: 4.5, Schedule: weekday, Services: ev},
+		{ID: "d21", Name: "Ford Ribeirão Preto", Address: "Av. Presidente Vargas, 2500 - Ribeirão Preto, SP", Phone: "+55 16 3000-0021", Lat: -21.2000, Lng: -47.8100, Rating: 4.6, Schedule: weekday, Services: full},
 		// Other states
-		{ID: "d22", Name: "Ford Barra da Tijuca", Address: "Av. das Américas, 5000 - Rio de Janeiro, RJ", Phone: "+55 21 3000-0022", Lat: -23.0000, Lng: -43.3650, Rating: 4.5, Hours: extended, Services: full},
-		{ID: "d23", Name: "Ford Savassi", Address: "Av. do Contorno, 6000 - Belo Horizonte, MG", Phone: "+55 31 3000-0023", Lat: -19.9380, Lng: -43.9340, Rating: 4.4, Hours: weekday, Services: service},
-		{ID: "d24", Name: "Ford Curitiba", Address: "Av. Sete de Setembro, 4000 - Curitiba, PR", Phone: "+55 41 3000-0024", Lat: -25.4400, Lng: -49.2700, Rating: 4.7, Hours: weekday, Services: ev},
+		{ID: "d22", Name: "Ford Barra da Tijuca", Address: "Av. das Américas, 5000 - Rio de Janeiro, RJ", Phone: "+55 21 3000-0022", Lat: -23.0000, Lng: -43.3650, Rating: 4.5, Schedule: extended, Services: full},
+		{ID: "d23", Name: "Ford Savassi", Address: "Av. do Contorno, 6000 - Belo Horizonte, MG", Phone: "+55 31 3000-0023", Lat: -19.9380, Lng: -43.9340, Rating: 4.4, Schedule: weekday, Services: service},
+		{ID: "d24", Name: "Ford Curitiba", Address: "Av. Sete de Setembro, 4000 - Curitiba, PR", Phone: "+55 41 3000-0024", Lat: -25.4400, Lng: -49.2700, Rating: 4.7, Schedule: weekday, Services: ev},
 	}
 }
 
 func seedAppointments(now time.Time) []appointments.Appointment {
-	// Anchor at 09:00 so seeded times look like real bookings.
-	base := time.Date(now.Year(), now.Month(), now.Day(), 9, 0, 0, 0, now.Location())
+	// Anchor at 09:00 São Paulo time so seeded times look like real bookings.
+	local := now.In(saoPaulo)
+	base := time.Date(local.Year(), local.Month(), local.Day(), 9, 0, 0, 0, saoPaulo)
 	type a struct {
 		days       int
 		hour       int
@@ -286,7 +300,10 @@ func seedAppointments(now time.Time) []appointments.Appointment {
 	var out []appointments.Appointment
 	for _, g := range groups {
 		for _, it := range g.items {
-			at := base.Add(time.Duration(it.days)*day + time.Duration(it.hour)*time.Hour)
+			at := base.AddDate(0, 0, it.days).Add(time.Duration(it.hour) * time.Hour)
+			if it.days > 0 && at.Weekday() == time.Sunday {
+				at = at.AddDate(0, 0, 1) // dealerships are closed on Sundays
+			}
 			out = append(out, appointments.Appointment{
 				ID:           fmt.Sprintf("apt-seed-%d", len(out)+1),
 				VIN:          g.vin,

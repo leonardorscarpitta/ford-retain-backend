@@ -25,15 +25,31 @@ func newHandler(now time.Time, users []auth.User) http.Handler {
 	vehiclesH := vehicles.NewHandler(vehicles.NewStore(seedVehicles()))
 	dealershipStore := dealerships.NewStore(seedDealerships())
 
+	// Scheduling reads opening hours through a function, so appointments
+	// doesn't depend on the dealerships package.
+	hours := func(id string, day time.Weekday) (appointments.Hours, bool) {
+		s, ok := dealershipStore.ScheduleOf(id)
+		if !ok {
+			return appointments.Hours{}, false
+		}
+		h, open := s.On(day)
+		if !open {
+			return appointments.Hours{Location: s.Location}, true
+		}
+		return appointments.Hours{Open: h.Open, Close: h.Close, Bays: s.Bays, Location: s.Location}, true
+	}
+	appointmentsH := appointments.NewHandler(appointments.NewService(hours, seedAppointments(now)))
+
 	owned := http.NewServeMux()
 	notifications.NewHandler(notifications.NewStore(seedNotifications(now))).Register(owned)
 	telemetry.NewHandler(telemetry.NewStore(seedTelemetry(now))).Register(owned)
-	appointments.NewHandler(appointments.NewService(dealershipStore, seedAppointments(now))).Register(owned)
+	appointmentsH.Register(owned)
 
 	signed := http.NewServeMux()
 	authH.Register(signed)
 	vehiclesH.Register(signed)
 	dealerships.NewHandler(dealershipStore).Register(signed)
+	appointmentsH.RegisterAvailability(signed)
 	signed.Handle("/api/vehicles/{vin}/", vehiclesH.RequireOwner(owned))
 
 	public := http.NewServeMux()
