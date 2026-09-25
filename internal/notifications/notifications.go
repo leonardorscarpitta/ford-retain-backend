@@ -48,12 +48,13 @@ func (s *Store) ListByVIN(vin string) []Notification {
 	return out
 }
 
-// MarkRead flags a notification as read. It reports whether it was found.
-func (s *Store) MarkRead(id string) (Notification, bool) {
+// MarkRead flags one of a vehicle's notifications as read. It reports whether
+// it was found.
+func (s *Store) MarkRead(vin, id string) (Notification, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.items {
-		if s.items[i].ID == id {
+		if s.items[i].ID == id && s.items[i].VIN == vin {
 			s.items[i].Read = true
 			return s.items[i], true
 		}

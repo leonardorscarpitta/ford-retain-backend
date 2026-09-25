@@ -23,13 +23,19 @@ func TestHTTP(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/notifications/n1/read", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/vehicles/VIN2/notifications/n1/read", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("other vehicle's notification: want 404, got %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/vehicles/VIN1/notifications/n1/read", nil))
 	if rec.Code != http.StatusOK || !store.ListByVIN("VIN1")[0].Read {
 		t.Fatalf("mark read: status %d, read=%v", rec.Code, store.ListByVIN("VIN1")[0].Read)
 	}
 
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/notifications/missing/read", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("PATCH", "/api/vehicles/VIN1/notifications/missing/read", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing: want 404, got %d", rec.Code)
 	}

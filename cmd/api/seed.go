@@ -5,24 +5,47 @@ import (
 	"time"
 
 	"github.com/ford-retain/backend/internal/appointments"
+	"github.com/ford-retain/backend/internal/auth"
 	"github.com/ford-retain/backend/internal/dealerships"
 	"github.com/ford-retain/backend/internal/notifications"
 	"github.com/ford-retain/backend/internal/telemetry"
 	"github.com/ford-retain/backend/internal/vehicles"
 )
 
-// The owner's garage, seeded for local development. The first is the default.
+// Seeded vehicles. Ana owns the two F-150s, Bruno the Ranger.
 const (
 	f150VIN      = "1FTFW1E50NFA00001"
 	lightningVIN = "1FTVW1EL5PWG00002"
 	rangerVIN    = "1FTER4HH3RLE00003"
 )
 
+// Demo accounts. Both use demoPassword; see the README.
+const (
+	anaID        = "u1"
+	brunoID      = "u2"
+	demoPassword = "ford-retain-demo"
+)
+
+func seedUsers(iterations int) ([]auth.User, error) {
+	users := []auth.User{
+		{ID: anaID, Email: "ana@example.com", Name: "Ana Souza"},
+		{ID: brunoID, Email: "bruno@example.com", Name: "Bruno Lima"},
+	}
+	for i := range users {
+		hash, err := auth.HashPassword(demoPassword, iterations)
+		if err != nil {
+			return nil, err
+		}
+		users[i].PasswordHash = hash
+	}
+	return users, nil
+}
+
 func seedVehicles() []vehicles.Vehicle {
 	return []vehicles.Vehicle{
-		{VIN: f150VIN, Model: "2022 Ford F-150 Lariat PowerBoost", PaintName: "Rapid Red", PaintHex: "#b0121f"},
-		{VIN: lightningVIN, Model: "2023 Ford F-150 Lightning Platinum", PaintName: "Antimatter Blue", PaintHex: "#1c2d4f"},
-		{VIN: rangerVIN, Model: "2024 Ford Ranger Raptor", PaintName: "Code Orange", PaintHex: "#e2581c"},
+		{VIN: f150VIN, OwnerID: anaID, Model: "2022 Ford F-150 Lariat PowerBoost", PaintName: "Rapid Red", PaintHex: "#b0121f"},
+		{VIN: lightningVIN, OwnerID: anaID, Model: "2023 Ford F-150 Lightning Platinum", PaintName: "Antimatter Blue", PaintHex: "#1c2d4f"},
+		{VIN: rangerVIN, OwnerID: brunoID, Model: "2024 Ford Ranger Raptor", PaintName: "Code Orange", PaintHex: "#e2581c"},
 	}
 }
 
