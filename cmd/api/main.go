@@ -14,6 +14,7 @@ import (
 	_ "time/tzdata" // the distroless image has no zoneinfo; dealerships need America/Sao_Paulo
 
 	"github.com/ford-retain/backend/internal/auth"
+	"github.com/ford-retain/backend/internal/fordapi"
 	"github.com/ford-retain/backend/internal/platform/httpx"
 )
 
@@ -32,14 +33,24 @@ func run() error {
 		return err
 	}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           httpx.Log(httpx.CORS(allowedOrigin, newHandler(time.Now(), users))),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Ford's platform owns vehicles, telemetry, alerts and dealers. Without
+	// FORD_API_URL the API serves the seeded demo data instead.
+	src := seedSources(time.Now())
+	if base := os.Getenv("FORD_API_URL"); base != "" {
+		src = fordSources(ctx, fordapi.New(base, os.Getenv("FORD_API_KEY")), 10*time.Minute)
+		slog.Info("data source: Ford platform", "url", base)
+	} else {
+		slog.Info("data source: seed data (FORD_API_URL not set)")
+	}
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           httpx.Log(httpx.CORS(allowedOrigin, newHandler(time.Now(), users, src))),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

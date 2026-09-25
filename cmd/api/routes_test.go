@@ -1,22 +1,48 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"github.com/ford-retain/backend/internal/seed"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ford-retain/backend/internal/fordapi"
+	"github.com/ford-retain/backend/internal/seed"
 )
 
-// TestAccessControl exercises the real router: who can reach what.
+// TestAccessControl exercises the real router, who can reach what, once
+// with seed data and once reading through the Ford client (against the mock
+// Ford API over HTTP).
 func TestAccessControl(t *testing.T) {
+	now := time.Now()
+	t.Run("seed data", func(t *testing.T) { testAccessControl(t, seedSources(now)) })
+	t.Run("Ford platform", func(t *testing.T) {
+		mock := httptest.NewServer(fordapi.NewMock("k", fordapi.MockData{
+			Vehicles:  seed.Vehicles(),
+			Telemetry: seed.Telemetry(now),
+			Alerts:    seed.Notifications(now),
+			Dealers:   seed.Dealerships(),
+		}))
+		defer mock.Close()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		src := fordSources(ctx, fordapi.New(mock.URL, "k"), time.Hour)
+		if len(src.dealers.All()) != 24 {
+			t.Fatalf("dealer directory not loaded at startup")
+		}
+		testAccessControl(t, src)
+	})
+}
+
+func testAccessControl(t *testing.T, src sources) {
 	users, err := seed.Users(1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := newHandler(time.Now(), users)
+	h := newHandler(time.Now(), users, src)
 
 	do := func(method, path, token, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))

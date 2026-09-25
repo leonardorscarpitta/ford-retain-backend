@@ -4,6 +4,7 @@ package dealerships
 import (
 	"math"
 	"sort"
+	"sync"
 )
 
 type Dealership struct {
@@ -24,18 +25,34 @@ type Dealership struct {
 	DistanceKm *float64 `json:"distanceKm,omitempty"`
 }
 
-// Store is a read-only in-memory dealership directory.
-type Store struct{ items []Dealership }
+// Store is the in-memory dealership directory. Offline it holds seed data;
+// with Ford's platform it's a snapshot of Ford's dealer directory, swapped
+// in by Replace on a refresh, so lookups never wait on the network.
+type Store struct {
+	mu    sync.RWMutex
+	items []Dealership
+}
 
 func NewStore(seed []Dealership) *Store {
-	for i := range seed {
-		seed[i].Hours = seed[i].Schedule.String()
+	s := &Store{}
+	s.Replace(seed)
+	return s
+}
+
+// Replace swaps in a new directory.
+func (s *Store) Replace(items []Dealership) {
+	for i := range items {
+		items[i].Hours = items[i].Schedule.String()
 	}
-	return &Store{items: seed}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = items
 }
 
 // ScheduleOf returns a dealership's opening schedule.
 func (s *Store) ScheduleOf(id string) (Schedule, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, d := range s.items {
 		if d.ID == id {
 			return d.Schedule, true
@@ -45,6 +62,8 @@ func (s *Store) ScheduleOf(id string) (Schedule, bool) {
 }
 
 func (s *Store) All() []Dealership {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return append([]Dealership(nil), s.items...)
 }
 

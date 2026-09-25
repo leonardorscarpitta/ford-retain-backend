@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/ford-retain/backend/internal/seed"
 	"net/http"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/ford-retain/backend/internal/dealerships"
 	"github.com/ford-retain/backend/internal/notifications"
 	"github.com/ford-retain/backend/internal/platform/httpx"
+	"github.com/ford-retain/backend/internal/seed"
 	"github.com/ford-retain/backend/internal/telemetry"
 	"github.com/ford-retain/backend/internal/vehicles"
 )
@@ -21,10 +21,13 @@ const sessionTTL = 7 * 24 * time.Hour
 //	public   /healthz, POST /api/auth/login
 //	signed   everything else under /api/ — needs a session (auth.RequireUser)
 //	owned    /api/vehicles/{vin}/…      — the VIN must be the user's (vehicles.RequireOwner)
-func newHandler(now time.Time, users []auth.User) http.Handler {
+//
+// Data owned by Ford's platform comes from src (seed data or Ford's APIs);
+// appointments are this service's own.
+func newHandler(now time.Time, users []auth.User, src sources) http.Handler {
 	authH := auth.NewHandler(auth.NewService(users, sessionTTL))
-	vehiclesH := vehicles.NewHandler(vehicles.NewStore(seed.Vehicles()))
-	dealershipStore := dealerships.NewStore(seed.Dealerships())
+	vehiclesH := vehicles.NewHandler(src.vehicles)
+	dealershipStore := src.dealers
 
 	// Scheduling reads opening hours through a function, so appointments
 	// doesn't depend on the dealerships package.
@@ -42,8 +45,8 @@ func newHandler(now time.Time, users []auth.User) http.Handler {
 	appointmentsH := appointments.NewHandler(appointments.NewService(hours, seed.Appointments(now)))
 
 	owned := http.NewServeMux()
-	notifications.NewHandler(notifications.NewStore(seed.Notifications(now))).Register(owned)
-	telemetry.NewHandler(telemetry.NewStore(seed.Telemetry(now))).Register(owned)
+	notifications.NewHandler(src.alerts).Register(owned)
+	telemetry.NewHandler(src.telemetry).Register(owned)
 	appointmentsH.Register(owned)
 
 	signed := http.NewServeMux()
