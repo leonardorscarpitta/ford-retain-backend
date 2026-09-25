@@ -1,12 +1,15 @@
 package appointments
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
+
+var ctx = context.Background()
 
 // brt is a fixed UTC−3 zone, like São Paulo.
 var brt = time.FixedZone("BRT", -3*60*60)
@@ -30,7 +33,7 @@ func alwaysOpen(string, time.Weekday) (Hours, bool) {
 
 func TestCreate(t *testing.T) {
 	now := time.Date(2026, 1, 5, 9, 30, 0, 0, brt) // Monday 09:30 local
-	svc := NewService(weekdayHours, nil)
+	svc := NewService(weekdayHours, NewMemoryRepo(nil))
 	svc.now = func() time.Time { return now }
 	at := func(day, hour, minute int) time.Time { return time.Date(2026, 1, day, hour, minute, 0, 0, brt) }
 
@@ -51,7 +54,7 @@ func TestCreate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Create("VIN1", tt.in)
+			_, err := svc.Create(ctx, "VIN1", tt.in)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("want success, got %v", err)
@@ -67,12 +70,12 @@ func TestCreate(t *testing.T) {
 
 func TestAvailability(t *testing.T) {
 	now := time.Date(2026, 1, 5, 9, 30, 0, 0, brt) // Monday 09:30 local
-	svc := NewService(weekdayHours, []Appointment{
+	svc := NewService(weekdayHours, NewMemoryRepo([]Appointment{
 		{ID: "a", DealershipID: "d1", ScheduledAt: time.Date(2026, 1, 6, 10, 0, 0, 0, brt)},
-	})
+	}))
 	svc.now = func() time.Time { return now }
 
-	days, loc, err := svc.Availability("d1", now, 7)
+	days, loc, err := svc.Availability(ctx, "d1", now, 7)
 	if err != nil || loc != brt || len(days) != 7 {
 		t.Fatalf("got %d days, loc %v, err %v", len(days), loc, err)
 	}
@@ -90,7 +93,7 @@ func TestAvailability(t *testing.T) {
 	if days[5].Date != "2026-01-10" || len(days[5].Slots) != 0 || len(days[6].Slots) != 0 {
 		t.Errorf("weekend should have no slots: %v %v", days[5], days[6])
 	}
-	if _, _, err := svc.Availability("nope", now, 7); !errors.Is(err, ErrUnknownDealership) {
+	if _, _, err := svc.Availability(ctx, "nope", now, 7); !errors.Is(err, ErrUnknownDealership) {
 		t.Errorf("unknown dealership: %v", err)
 	}
 }
@@ -98,13 +101,13 @@ func TestAvailability(t *testing.T) {
 func TestListByVINFiltersAndSorts(t *testing.T) {
 	now := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	at := func(days int) time.Time { return now.Add(time.Duration(days) * 24 * time.Hour) }
-	svc := NewService(alwaysOpen, []Appointment{
+	svc := NewService(alwaysOpen, NewMemoryRepo([]Appointment{
 		{ID: "past-old", VIN: "VIN1", ScheduledAt: at(-30)},
 		{ID: "future-late", VIN: "VIN1", ScheduledAt: at(20)},
 		{ID: "past-recent", VIN: "VIN1", ScheduledAt: at(-2)},
 		{ID: "future-soon", VIN: "VIN1", ScheduledAt: at(3)},
 		{ID: "other-vin", VIN: "VIN2", ScheduledAt: at(-1)},
-	})
+	}))
 	svc.now = func() time.Time { return now }
 
 	tests := []struct {
@@ -117,7 +120,7 @@ func TestListByVINFiltersAndSorts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.when), func(t *testing.T) {
-			got := svc.ListByVIN("VIN1", tt.when)
+			got, _ := svc.ListByVIN(ctx, "VIN1", tt.when)
 			ids := make([]string, len(got))
 			for i, a := range got {
 				ids[i] = a.ID
@@ -131,22 +134,22 @@ func TestListByVINFiltersAndSorts(t *testing.T) {
 
 func TestCancel(t *testing.T) {
 	now := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc := NewService(alwaysOpen, []Appointment{
+	svc := NewService(alwaysOpen, NewMemoryRepo([]Appointment{
 		{ID: "future", VIN: "VIN1", ScheduledAt: now.Add(time.Hour)},
 		{ID: "past", VIN: "VIN1", ScheduledAt: now.Add(-time.Hour)},
-	})
+	}))
 	svc.now = func() time.Time { return now }
 
-	if err := svc.Cancel("VIN2", "future"); !errors.Is(err, ErrNotFound) {
+	if err := svc.Cancel(ctx, "VIN2", "future"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("other vehicle's appointment: want ErrNotFound, got %v", err)
 	}
-	if err := svc.Cancel("VIN1", "past"); !errors.Is(err, ErrInvalid) {
+	if err := svc.Cancel(ctx, "VIN1", "past"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("past appointment: want ErrInvalid, got %v", err)
 	}
-	if err := svc.Cancel("VIN1", "future"); err != nil {
+	if err := svc.Cancel(ctx, "VIN1", "future"); err != nil {
 		t.Fatalf("upcoming appointment: %v", err)
 	}
-	if got := svc.ListByVIN("VIN1", WhenUpcoming); len(got) != 0 {
+	if got, _ := svc.ListByVIN(ctx, "VIN1", WhenUpcoming); len(got) != 0 {
 		t.Errorf("want no upcoming appointments after cancel, got %d", len(got))
 	}
 }

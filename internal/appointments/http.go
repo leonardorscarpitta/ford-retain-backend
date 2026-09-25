@@ -2,6 +2,7 @@ package appointments
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -33,7 +34,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "when must be upcoming or past")
 		return
 	}
-	httpx.JSON(w, http.StatusOK, h.svc.ListByVIN(r.PathValue("vin"), when))
+	list, err := h.svc.ListByVIN(r.Context(), r.PathValue("vin"), when)
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, list)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -42,27 +48,27 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	a, err := h.svc.Create(r.PathValue("vin"), in)
+	a, err := h.svc.Create(r.Context(), r.PathValue("vin"), in)
 	if errors.Is(err, ErrInvalid) {
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if err != nil {
-		httpx.Error(w, http.StatusInternalServerError, "could not create appointment")
+		internalError(w, r, err)
 		return
 	}
 	httpx.JSON(w, http.StatusCreated, a)
 }
 
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
-	err := h.svc.Cancel(r.PathValue("vin"), r.PathValue("id"))
+	err := h.svc.Cancel(r.Context(), r.PathValue("vin"), r.PathValue("id"))
 	switch {
 	case errors.Is(err, ErrNotFound):
 		httpx.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrInvalid):
 		httpx.Error(w, http.StatusUnprocessableEntity, err.Error())
 	case err != nil:
-		httpx.Error(w, http.StatusInternalServerError, "could not cancel appointment")
+		internalError(w, r, err)
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -100,10 +106,20 @@ func (h *Handler) availability(w http.ResponseWriter, r *http.Request) {
 		from = time.Date(d.Year(), d.Month(), d.Day(), 12, 0, 0, 0, time.UTC)
 	}
 	id := r.PathValue("id")
-	out, loc, err := h.svc.Availability(id, from, days)
+	out, loc, err := h.svc.Availability(r.Context(), id, from, days)
 	if errors.Is(err, ErrUnknownDealership) {
 		httpx.Error(w, http.StatusNotFound, "dealership not found")
 		return
 	}
+	if err != nil {
+		internalError(w, r, err)
+		return
+	}
 	httpx.JSON(w, http.StatusOK, availabilityResponse{DealershipID: id, TimeZone: loc.String(), Days: out})
+}
+
+// internalError logs a storage failure and hides the details from the caller.
+func internalError(w http.ResponseWriter, r *http.Request, err error) {
+	slog.Error("appointments", "method", r.Method, "path", r.URL.Path, "err", err)
+	httpx.Error(w, http.StatusInternalServerError, "something went wrong, please try again")
 }

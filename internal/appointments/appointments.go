@@ -2,11 +2,11 @@
 package appointments
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -64,30 +64,24 @@ func (w When) Valid() bool {
 
 type Service struct {
 	hours HoursLookup
+	repo  Repository
 	now   func() time.Time
-
-	mu     sync.RWMutex
-	items  []Appointment
-	nextID int
 }
 
-// NewService creates the service with optional seed appointments. Seeded
-// appointments skip validation so past ones can be loaded.
-func NewService(hours HoursLookup, seed []Appointment) *Service {
-	return &Service{hours: hours, now: time.Now, items: seed, nextID: 1}
+func NewService(hours HoursLookup, repo Repository) *Service {
+	return &Service{hours: hours, repo: repo, now: time.Now}
 }
 
 // ListByVIN returns a vehicle's appointments. Upcoming ones are sorted soonest
 // first; past ones most recent first.
-func (s *Service) ListByVIN(vin string, when When) []Appointment {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *Service) ListByVIN(ctx context.Context, vin string, when When) ([]Appointment, error) {
+	all, err := s.repo.ListByVIN(ctx, vin)
+	if err != nil {
+		return nil, err
+	}
 	now := s.now()
 	out := []Appointment{}
-	for _, a := range s.items {
-		if a.VIN != vin {
-			continue
-		}
+	for _, a := range all {
 		past := !a.ScheduledAt.After(now)
 		if (when == WhenUpcoming && past) || (when == WhenPast && !past) {
 			continue
@@ -100,12 +94,12 @@ func (s *Service) ListByVIN(vin string, when When) []Appointment {
 		}
 		return out[i].ScheduledAt.Before(out[j].ScheduledAt)
 	})
-	return out
+	return out, nil
 }
 
 // Create books a slot. The time must be the start of an open hourly slot at
 // the dealership, in the future, with a bay still free.
-func (s *Service) Create(vin string, in CreateInput) (Appointment, error) {
+func (s *Service) Create(ctx context.Context, vin string, in CreateInput) (Appointment, error) {
 	if strings.TrimSpace(in.Service) == "" {
 		return Appointment{}, fmt.Errorf("%w: service is required", ErrInvalid)
 	}
@@ -123,43 +117,37 @@ func (s *Service) Create(vin string, in CreateInput) (Appointment, error) {
 		return Appointment{}, fmt.Errorf("%w: pick one of the dealership's available times", ErrInvalid)
 	}
 
-	// Check capacity and insert under one lock so two bookings can't both
-	// take the last bay.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.bookedLocked(in.DealershipID, in.ScheduledAt) >= h.Bays {
-		return Appointment{}, fmt.Errorf("%w: that time is fully booked", ErrInvalid)
-	}
-	a := Appointment{
-		ID:           fmt.Sprintf("apt-%d", s.nextID),
+	a, ok, err := s.repo.Book(ctx, Appointment{
 		VIN:          vin,
 		DealershipID: in.DealershipID,
 		ScheduledAt:  in.ScheduledAt,
 		Service:      strings.TrimSpace(in.Service),
 		Notes:        in.Notes,
 		CreatedAt:    s.now(),
+	}, h.Bays)
+	if err != nil {
+		return Appointment{}, err
 	}
-	s.nextID++
-	s.items = append(s.items, a)
+	if !ok {
+		return Appointment{}, fmt.Errorf("%w: that time is fully booked", ErrInvalid)
+	}
 	return a, nil
 }
 
 // Cancel removes an upcoming appointment. Past appointments are history and
 // can't be cancelled.
-func (s *Service) Cancel(vin, id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, a := range s.items {
-		if a.ID != id || a.VIN != vin {
-			continue
-		}
-		if !a.ScheduledAt.After(s.now()) {
-			return fmt.Errorf("%w: past appointments can't be cancelled", ErrInvalid)
-		}
-		s.items = append(s.items[:i], s.items[i+1:]...)
-		return nil
+func (s *Service) Cancel(ctx context.Context, vin, id string) error {
+	a, ok, err := s.repo.Get(ctx, vin, id)
+	if err != nil {
+		return err
 	}
-	return ErrNotFound
+	if !ok {
+		return ErrNotFound
+	}
+	if !a.ScheduledAt.After(s.now()) {
+		return fmt.Errorf("%w: past appointments can't be cancelled", ErrInvalid)
+	}
+	return s.repo.Delete(ctx, vin, id)
 }
 
 // Slot is one bookable hour at a dealership.
@@ -177,16 +165,19 @@ type Day struct {
 // Availability lists future hourly slots for `days` days starting on the
 // calendar date of `from` in the dealership's time zone. A slot is available
 // while fewer appointments than bays are booked in it.
-func (s *Service) Availability(dealershipID string, from time.Time, days int) ([]Day, *time.Location, error) {
+func (s *Service) Availability(ctx context.Context, dealershipID string, from time.Time, days int) ([]Day, *time.Location, error) {
 	loc, ok := s.location(dealershipID)
 	if !ok {
 		return nil, nil, ErrUnknownDealership
 	}
 	now := s.now()
 	y, m, d := from.In(loc).Date()
+	first := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	booked, err := s.repo.Booked(ctx, dealershipID, first, time.Date(y, m, d+days, 0, 0, 0, 0, loc))
+	if err != nil {
+		return nil, nil, err
+	}
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	out := make([]Day, 0, days)
 	for i := 0; i < days; i++ {
 		date := time.Date(y, m, d+i, 0, 0, 0, 0, loc)
@@ -197,7 +188,7 @@ func (s *Service) Availability(dealershipID string, from time.Time, days int) ([
 				if !start.After(now) {
 					continue
 				}
-				day.Slots = append(day.Slots, Slot{Start: start, Available: s.bookedLocked(dealershipID, start) < h.Bays})
+				day.Slots = append(day.Slots, Slot{Start: start, Available: booked[start.UTC()] < h.Bays})
 			}
 		}
 		out = append(out, day)
@@ -212,15 +203,4 @@ func (s *Service) location(dealershipID string) (*time.Location, bool) {
 		return nil, false
 	}
 	return h.Location, true
-}
-
-// bookedLocked counts appointments at a dealership starting at t. Callers hold s.mu.
-func (s *Service) bookedLocked(dealershipID string, t time.Time) int {
-	n := 0
-	for _, a := range s.items {
-		if a.DealershipID == dealershipID && a.ScheduledAt.Equal(t) {
-			n++
-		}
-	}
-	return n
 }

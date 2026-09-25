@@ -42,7 +42,7 @@ func newHandler(now time.Time, users []auth.User, src sources) http.Handler {
 		}
 		return appointments.Hours{Open: h.Open, Close: h.Close, Bays: s.Bays, Location: s.Location}, true
 	}
-	appointmentsH := appointments.NewHandler(appointments.NewService(hours, seed.Appointments(now)))
+	appointmentsH := appointments.NewHandler(appointments.NewService(hours, appointments.NewMemoryRepo(seed.Appointments(now))))
 
 	owned := http.NewServeMux()
 	notifications.NewHandler(src.alerts).Register(owned)

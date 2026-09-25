@@ -15,9 +15,9 @@ func TestHTTP(t *testing.T) {
 			return Hours{}, false
 		}
 		return alwaysOpen(id, day)
-	}, []Appointment{
+	}, NewMemoryRepo([]Appointment{
 		{ID: "a1", VIN: "VIN1", DealershipID: "d1", ScheduledAt: now.Add(48 * time.Hour), Service: "Brakes"},
-	})
+	}))
 	mux := http.NewServeMux()
 	h := NewHandler(svc)
 	h.Register(mux)
