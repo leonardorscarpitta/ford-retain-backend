@@ -1,36 +1,210 @@
+# DevSecOps pipeline (Gitea Actions). Stages run in order and each one gates
+# the next:
+#   secrets -> sast -> sca -> build-test -> container-scan -> dast -> release
+# `release` bumps the image tag in deploy/k8s/kustomization.yaml; ArgoCD
+# deploys it once develop is merged into master (see README "CI/CD").
+#
+# Tools need no accounts. Third-party binaries are pinned by version and
+# SHA-256, actions by commit SHA, images by digest.
 name: Main Pipeline
 
 on:
   push:
     branches:
       - develop
+    paths-ignore:
+      - "deploy/**" # the release job's own tag bump must not re-trigger the pipeline
   pull_request:
     branches:
       - develop
 
+env:
+  REGISTRY: gitea.lucasggmoreira.com.br
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+  GOSEC_VERSION: v2.29.0
+  SYFT_VERSION: "1.52.0"
+  SYFT_SHA256: caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d
+  GRYPE_VERSION: "0.119.0"
+  GRYPE_SHA256: 3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
+
 jobs:
-  gitleaks:
-    name: Git Leaks
+  secrets:
+    name: Exposed credential check (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - name: Code Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          fetch-depth: 0 # Checks the whole commit history
+          fetch-depth: 0 # scan the whole commit history
 
-      - name: Git Leaks
-        uses: gitleaks/gitleaks-action@v3
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks
+
+      - name: Scan history for secrets
+        run: gitleaks git --redact --verbose .
+
+  sast:
+    name: SAST (gosec)
+    runs-on: ubuntu-latest
+    needs: secrets
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install gosec
+        run: go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+
+      - name: Static analysis
+        # Fails on medium+ severity findings reported with medium+ confidence.
+        run: "$(go env GOPATH)/bin/gosec -severity medium -confidence medium ./..."
+
+  sca:
+    name: SCA + SBOM (syft, grype)
+    runs-on: ubuntu-latest
+    needs: sast
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Install syft and grype
+        run: |
+          curl -sSfL -o /tmp/syft.tgz "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  /tmp/syft.tgz" | sha256sum -c -
+          tar -xzf /tmp/syft.tgz -C /usr/local/bin syft
+          curl -sSfL -o /tmp/grype.tgz "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  /tmp/grype.tgz" | sha256sum -c -
+          tar -xzf /tmp/grype.tgz -C /usr/local/bin grype
+
+      - name: Generate SBOM (CycloneDX)
+        run: syft scan dir:. -o cyclonedx-json=sbom.cdx.json
+
+      - name: Scan dependencies
+        run: grype sbom:sbom.cdx.json --fail-on high
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+  build-test:
+    name: Build + Tests
+    runs-on: ubuntu-latest
+    needs: sca
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          POSTGRES_USER: ford
+          POSTGRES_PASSWORD: ford # throwaway CI database
+          POSTGRES_DB: ford_retain
+        options: >-
+          --health-cmd "pg_isready -U ford -d ford_retain"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
 
-  # semgrep:
-  #   name: Semgrep
-  #   runs-on: ubuntu-latest
-  #   needs: gitleaks
-  #   container:
-  #     image: semgrep/semgrep
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #     - run: semgrep ci
-  #       env:
-  #         SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      # Same checks as `make test`.
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        env:
+          TEST_DATABASE_URL: postgres://ford:ford@postgres:5432/ford_retain?sslmode=disable
+        run: go test ./...
+
+      - name: Build and push image
+        id: image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          IMAGE="${REGISTRY}/${{ github.repository }}:${{ github.sha }}"
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ github.repository_owner }}" --password-stdin
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          docker logout "$REGISTRY"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  container-scan:
+    name: Container Scan (grype)
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Install grype
+        run: |
+          curl -sSfL -o /tmp/grype.tgz "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  /tmp/grype.tgz" | sha256sum -c -
+          tar -xzf /tmp/grype.tgz -C /usr/local/bin grype
+
+      - name: Scan image
+        env:
+          GRYPE_REGISTRY_AUTH_AUTHORITY: ${{ env.REGISTRY }}
+          GRYPE_REGISTRY_AUTH_USERNAME: ${{ github.repository_owner }}
+          GRYPE_REGISTRY_AUTH_PASSWORD: ${{ secrets.REGISTRY_TOKEN }}
+        run: grype "registry:${{ needs.build-test.outputs.image }}" --fail-on high
+
+  dast:
+    name: DAST (OWASP ZAP baseline)
+    runs-on: ubuntu-latest
+    needs: [build-test, container-scan]
+    container:
+      image: ghcr.io/zaproxy/zaproxy:2.17.0@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef
+    services:
+      # The image under test, with its in-memory demo data.
+      api:
+        image: ${{ needs.build-test.outputs.image }}
+        credentials:
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+    steps:
+      - name: Wait for the API
+        run: |
+          python3 - <<'EOF'
+          import time, urllib.request
+          for _ in range(30):
+              try:
+                  urllib.request.urlopen("http://api:8080/healthz", timeout=2)
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise SystemExit("API did not become healthy")
+          EOF
+
+      - name: Baseline scan
+        # -I: warnings are reported but don't fail the job; FAIL-level alerts do.
+        run: zap-baseline.py -t http://api:8080 -I
+
+  release:
+    name: Release (update ArgoCD manifest)
+    runs-on: ubuntu-latest
+    needs: [build-test, dast]
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: develop
+
+      - name: Bump image tag
+        run: |
+          git config user.name "gitea-actions"
+          git config user.email "gitea-actions@${REGISTRY}"
+          sed -i "s|^\(\s*newTag:\).*|\1 \"${{ github.sha }}\"|" deploy/k8s/kustomization.yaml
+          git add deploy/k8s/kustomization.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "ci(deploy): release ${{ github.sha }} [skip ci]"
+          git push origin HEAD:develop

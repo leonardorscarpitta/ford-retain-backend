@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ford-retain-backend
+  labels:
+    app: ford-retain-backend
+spec:
+  replicas: 1 # sessions live in memory (see README "Authentication")
+  selector:
+    matchLabels:
+      app: ford-retain-backend
+  template:
+    metadata:
+      labels:
+        app: ford-retain-backend
+    spec:
+      imagePullSecrets:
+        - name: gitea-registry
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ford-retain-backend
+          ports:
+            - name: http
+              containerPort: 8080
+          # DATABASE_URL, ALLOWED_ORIGIN, FORD_API_URL, FORD_API_KEY (README
+          # "Configuration"), created out of band; without it the API serves seed data.
+          envFrom:
+            - secretRef:
+                name: ford-retain-backend
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

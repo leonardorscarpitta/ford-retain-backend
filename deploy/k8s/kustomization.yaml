@@ -1,0 +1,11 @@
+# Manifests ArgoCD syncs (deploy/argocd/application.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ford-retain
+resources:
+  - deployment.yaml
+  - service.yaml
+images:
+  - name: ford-retain-backend
+    newName: gitea.lucasggmoreira.com.br/neo/ford-retain-backend
+    newTag: "initial" # set by the pipeline's release job to the tested commit SHA

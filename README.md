@@ -251,13 +251,53 @@ make build  # production image
 ```
 
 `make test` runs the Go toolchain in a `golang:1.27-alpine` container on the
-`ford-retain` network, sharing the module cache with `make dev`. CI
-(`.github/workflows/ci.yml`) runs the same checks, with a Postgres service, on
-pushes to `master` and `develop` and on pull requests.
+`ford-retain` network, sharing the module cache with `make dev`. CI runs the
+same checks, with a Postgres service (see [CI/CD](#cicd)).
 
 Branches follow git flow: `master` (releases), `develop` (integration),
 `feat/*` and `bugfix/*` for work. Commits follow
 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+
+## CI/CD
+
+Gitea Actions (`.gitea/workflows/workflow.yml`) runs on pushes and pull
+requests to `develop`. Each stage gates the next:
+
+| Stage | Tool | Fails on |
+|-------|------|----------|
+| Exposed credential check | gitleaks (full git history) | any secret found |
+| SAST | gosec | medium+ severity with medium+ confidence |
+| SCA + SBOM | syft (CycloneDX SBOM, kept as the `sbom` artifact) + grype | high/critical CVEs in dependencies |
+| Build + Tests | gofmt, go vet, go test (Postgres service), `docker build` + push | any failure |
+| Container Scan | grype on the pushed image | high/critical CVEs |
+| DAST | OWASP ZAP baseline against the image (seed data) | FAIL-level alerts (warnings are only reported) |
+| Release (pushes only) | commits the image tag to `deploy/k8s/kustomization.yaml` | — |
+
+None of the tools needs an account. Binaries are pinned by version and
+SHA-256, actions by commit SHA, and images by digest. Bump them together.
+
+Images go to the Gitea container registry as
+`gitea.lucasggmoreira.com.br/neo/ford-retain-backend:<commit sha>`.
+
+**Deployment (GitOps with ArgoCD):** `deploy/k8s/` is a Kustomize app
+(Deployment, Service) and `deploy/argocd/application.yaml` points ArgoCD at it
+on `master`. The release job commits the tested image tag to `develop` (with
+`[skip ci]`; changes under `deploy/` don't trigger the pipeline). Merging
+`develop` into `master` deploys exactly the image that passed every stage.
+
+**Setup:**
+
+- Runner: the `ubuntu-latest` image needs the Docker CLI and the host's Docker
+  socket (act_runner mounts it by default) for the build step.
+- Actions secret `REGISTRY_TOKEN`: a Gitea access token of the repo owner with
+  `write:package`, used to push, scan and pull the image.
+- The built-in Actions token must be allowed to push to `develop` (if the
+  branch is protected, allow Gitea Actions to push).
+- ArgoCD: add the repository with a Gitea token with `read:repository`, then
+  `kubectl apply -n argocd -f deploy/argocd/application.yaml`.
+- Cluster, namespace `ford-retain`: a `gitea-registry` docker-registry secret
+  (Gitea token with `read:package`) and, optionally, a `ford-retain-backend`
+  secret with the variables from [Configuration](#configuration).
 
 ## Next steps
 
