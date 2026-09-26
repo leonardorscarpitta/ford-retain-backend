@@ -17,6 +17,7 @@ on:
   pull_request:
     branches:
       - develop
+      - master
   workflow_dispatch: # manual reruns from the Actions tab
 
 env:
