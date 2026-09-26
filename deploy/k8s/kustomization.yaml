@@ -8,4 +8,4 @@ resources:
 images:
   - name: ford-retain-backend
     newName: gitea.lucasggmoreira.com.br/neo/ford-retain-backend
-    newTag: "619d4cf3338ebd472430077d54ef7914e9b3a53c"
+    newTag: "704aefa03fac975c81dac751d624ad5111323806"
