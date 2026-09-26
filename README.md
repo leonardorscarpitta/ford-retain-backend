@@ -293,11 +293,54 @@ on `master`. The release job commits the tested image tag to `develop` (with
   `write:package`, used to push, scan and pull the image.
 - The built-in Actions token must be allowed to push to `develop` (if the
   branch is protected, allow Gitea Actions to push).
-- ArgoCD: add the repository with a Gitea token with `read:repository`, then
-  `kubectl apply -n argocd -f deploy/argocd/application.yaml`.
-- Cluster, namespace `ford-retain`: a `gitea-registry` docker-registry secret
-  (Gitea token with `read:package`) and, optionally, a `ford-retain-backend`
-  secret with the variables from [Configuration](#configuration).
+
+### Linking an environment (K3s + ArgoCD)
+
+Run once on the VM (`sudo k3s kubectl` works in place of `kubectl`). The VM must
+reach `gitea.lucasggmoreira.com.br` over HTTPS. Create two Gitea tokens first:
+one with `read:repository` (ArgoCD reads the manifests) and one with
+`read:package` (K3s pulls the image).
+
+```sh
+# 1. Let ArgoCD read this private repository.
+kubectl -n argocd create secret generic repo-ford-retain-backend \
+  --from-literal=type=git \
+  --from-literal=url=https://gitea.lucasggmoreira.com.br/neo/ford-retain-backend.git \
+  --from-literal=username=neo \
+  --from-literal=password='<read:repository token>'
+kubectl -n argocd label secret repo-ford-retain-backend argocd.argoproj.io/secret-type=repository
+
+# 2. Namespace and image pull secret (must exist before the first sync).
+kubectl create namespace ford-retain
+kubectl -n ford-retain create secret docker-registry gitea-registry \
+  --docker-server=gitea.lucasggmoreira.com.br \
+  --docker-username=neo \
+  --docker-password='<read:package token>'
+
+# 3. Optional: app configuration (see Configuration). Without it: seed data, in memory.
+kubectl -n ford-retain create secret generic ford-retain-backend \
+  --from-literal=ALLOWED_ORIGIN='https://<front-end host>'
+
+# 4. Register the application (from a clone of this repo).
+kubectl apply -n argocd -f deploy/argocd/application.yaml
+```
+
+ArgoCD then syncs `deploy/k8s` from `master` automatically (prune and
+self-heal on). `master` only gets the manifests and a real image tag once
+`develop` is merged after a successful pipeline run. Until then the app shows
+as missing or `ImagePullBackOff`.
+
+Check it:
+
+```sh
+kubectl -n argocd get application ford-retain-backend   # Synced / Healthy
+kubectl -n ford-retain port-forward svc/ford-retain-backend 8080:8080 &
+curl http://localhost:8080/healthz
+```
+
+The Service is `ClusterIP`: the front-end reaches the API server side, so the
+API isn't exposed outside the cluster. Inside it, it's
+`http://ford-retain-backend.ford-retain:8080`.
 
 ## Next steps
 
