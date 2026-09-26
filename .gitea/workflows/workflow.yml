@@ -85,7 +85,7 @@ jobs:
       - name: Scan dependencies
         run: grype sbom:sbom.cdx.json --fail-on high
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@c6a3b2bd78b3985e4b2f15397fec357f0fd808de # v3.2.2-node20 (Gitea does not support v4)
         if: always()
         with:
           name: sbom
