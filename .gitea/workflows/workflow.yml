@@ -8,12 +8,12 @@ on:
 
 jobs:
   gitleaks-job:
-    uses: ./git-leaks.yml
+    uses: ./.gitea/workflows/git-leaks.yml
 
   # semgrep-job:
-  #   uses: ./semgrep.yml
+  #   uses: ./.gitea/workflows/semgrep.yml
   #   needs: gitleaks-job
 
   # sca-sbom-job:
-  #   uses: ./sca-sbom.yml
+  #   uses: ./.gitea/workflows/sca-sbom.yml
   #   needs: semgrep-job
