@@ -4,6 +4,7 @@ package dealerships
 import (
 	"math"
 	"sort"
+	"sync"
 )
 
 type Dealership struct {
@@ -13,35 +14,67 @@ type Dealership struct {
 	Phone   string  `json:"phone"`
 	Lat     float64 `json:"lat"`
 	Lng     float64 `json:"lng"`
-	// DistanceKm is only set when results are sorted by proximity.
-	DistanceKm float64 `json:"distanceKm,omitempty"`
+	// Rating is the average customer rating, 1-5.
+	Rating   float64  `json:"rating"`
+	Services []string `json:"services"`
+	// Hours is Schedule in words, filled in by NewStore.
+	Hours    string   `json:"hours"`
+	Schedule Schedule `json:"-"`
+	// DistanceKm is only set when results are sorted by proximity (a pointer so
+	// a genuine 0 km is still sent).
+	DistanceKm *float64 `json:"distanceKm,omitempty"`
 }
 
-// Store is a read-only in-memory dealership directory.
-type Store struct{ items []Dealership }
-
-func NewStore(seed []Dealership) *Store { return &Store{items: seed} }
-
-func (s *Store) All() []Dealership {
-	return append([]Dealership(nil), s.items...)
+// Store is the in-memory dealership directory. Offline it holds seed data;
+// with Ford's platform it's a snapshot of Ford's dealer directory, swapped
+// in by Replace on a refresh, so lookups never wait on the network.
+type Store struct {
+	mu    sync.RWMutex
+	items []Dealership
 }
 
-func (s *Store) Exists(id string) bool {
+func NewStore(seed []Dealership) *Store {
+	s := &Store{}
+	s.Replace(seed)
+	return s
+}
+
+// Replace swaps in a new directory.
+func (s *Store) Replace(items []Dealership) {
+	for i := range items {
+		items[i].Hours = items[i].Schedule.String()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = items
+}
+
+// ScheduleOf returns a dealership's opening schedule.
+func (s *Store) ScheduleOf(id string) (Schedule, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, d := range s.items {
 		if d.ID == id {
-			return true
+			return d.Schedule, true
 		}
 	}
-	return false
+	return Schedule{}, false
+}
+
+func (s *Store) All() []Dealership {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]Dealership(nil), s.items...)
 }
 
 // Nearest returns every dealership sorted by distance from (lat, lng).
 func (s *Store) Nearest(lat, lng float64) []Dealership {
 	out := s.All()
 	for i := range out {
-		out[i].DistanceKm = math.Round(haversineKm(lat, lng, out[i].Lat, out[i].Lng)*10) / 10
+		d := math.Round(haversineKm(lat, lng, out[i].Lat, out[i].Lng)*10) / 10
+		out[i].DistanceKm = &d
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].DistanceKm < out[j].DistanceKm })
+	sort.Slice(out, func(i, j int) bool { return *out[i].DistanceKm < *out[j].DistanceKm })
 	return out
 }
 

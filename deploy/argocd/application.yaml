@@ -1,0 +1,21 @@
+# Apply once in the ArgoCD namespace: kubectl apply -n argocd -f deploy/argocd/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ford-retain-backend
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://gitea.lucasggmoreira.com.br/neo/ford-retain-backend.git
+    targetRevision: master
+    path: deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ford-retain
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

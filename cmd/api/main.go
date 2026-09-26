@@ -10,12 +10,14 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the distroless image has no zoneinfo; dealerships need America/Sao_Paulo
 
 	"github.com/ford-retain/backend/internal/appointments"
-	"github.com/ford-retain/backend/internal/dealerships"
-	"github.com/ford-retain/backend/internal/notifications"
+	"github.com/ford-retain/backend/internal/auth"
+	"github.com/ford-retain/backend/internal/fordapi"
 	"github.com/ford-retain/backend/internal/platform/httpx"
-	"github.com/ford-retain/backend/internal/telemetry"
+	"github.com/ford-retain/backend/internal/platform/postgres"
+	"github.com/ford-retain/backend/internal/seed"
 )
 
 func main() {
@@ -28,37 +30,39 @@ func main() {
 func run() error {
 	addr := env("ADDR", ":8080")
 	allowedOrigin := env("ALLOWED_ORIGIN", "http://localhost:3000")
-	now := time.Now()
-
-	// Wire modules. Each module owns its data and registers its own routes.
-	dealershipStore := dealerships.NewStore(seedDealerships())
-	modules := []interface{ Register(*http.ServeMux) }{
-		notifications.NewHandler(notifications.NewStore(seedNotifications(now))),
-		telemetry.NewHandler(telemetry.NewStore(seedTelemetry(now))),
-		dealerships.NewHandler(dealershipStore),
-		appointments.NewHandler(appointments.NewService(dealershipStore, seedAppointments(now))),
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	for _, m := range modules {
-		m.Register(mux)
-	}
-
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           httpx.CORS(allowedOrigin, mux),
-		ReadHeaderTimeout: 5 * time.Second,
+	users, err := seed.Users(auth.DefaultIterations)
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Ford's platform owns vehicles, telemetry, alerts and dealers. Without
+	// FORD_API_URL the API serves the seeded demo data instead.
+	src := seedSources(time.Now())
+	if base := os.Getenv("FORD_API_URL"); base != "" {
+		src = fordSources(ctx, fordapi.New(base, os.Getenv("FORD_API_KEY")), 10*time.Minute)
+		slog.Info("data source: Ford platform", "url", base)
+	} else {
+		slog.Info("data source: seed data (FORD_API_URL not set)")
+	}
+
+	bookings, closeDB, err := openBookings(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           httpx.Log(httpx.CORS(allowedOrigin, newHandler(users, src, bookings))),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("listening", "addr", addr, "demoVIN", demoVIN)
+		slog.Info("listening", "addr", addr)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -74,6 +78,36 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// openBookings stores appointments in Postgres when DATABASE_URL is set
+// (applying migrations, and loading demo bookings into an empty table when
+// SEED_APPOINTMENTS=true), otherwise in memory with the demo bookings.
+func openBookings(ctx context.Context) (appointments.Repository, func(), error) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		slog.Info("appointments: in memory (DATABASE_URL not set)")
+		return appointments.NewMemoryRepo(seed.Appointments(time.Now())), func() {}, nil
+	}
+	db, err := postgres.Open(ctx, url)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := postgres.Migrate(ctx, db, "appointments", appointments.Migrations()); err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	repo := appointments.NewPostgresRepo(db)
+	if os.Getenv("SEED_APPOINTMENTS") == "true" {
+		seeded, err := repo.SeedIfEmpty(ctx, seed.Appointments(time.Now()))
+		if err != nil {
+			db.Close()
+			return nil, nil, err
+		}
+		slog.Info("appointments: demo bookings", "loaded", seeded)
+	}
+	slog.Info("appointments: postgres")
+	return repo, func() { db.Close() }, nil
 }
 
 func env(key, fallback string) string {

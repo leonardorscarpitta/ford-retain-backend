@@ -3,6 +3,7 @@
 package notifications
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -26,6 +27,13 @@ type Notification struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// Source is where alerts come from: Store (seed data) offline, the WhatsApp
+// alert history in Ford's platform in production.
+type Source interface {
+	ListByVIN(ctx context.Context, vin string) ([]Notification, error)
+	MarkRead(ctx context.Context, vin, id string) (Notification, bool, error)
+}
+
 // Store is an in-memory notification repository.
 type Store struct {
 	mu    sync.RWMutex
@@ -36,7 +44,7 @@ func NewStore(seed []Notification) *Store {
 	return &Store{items: seed}
 }
 
-func (s *Store) ListByVIN(vin string) []Notification {
+func (s *Store) ListByVIN(_ context.Context, vin string) ([]Notification, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []Notification{}
@@ -45,18 +53,19 @@ func (s *Store) ListByVIN(vin string) []Notification {
 			out = append(out, n)
 		}
 	}
-	return out
+	return out, nil
 }
 
-// MarkRead flags a notification as read. It reports whether it was found.
-func (s *Store) MarkRead(id string) (Notification, bool) {
+// MarkRead flags one of a vehicle's notifications as read. It reports whether
+// it was found.
+func (s *Store) MarkRead(_ context.Context, vin, id string) (Notification, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.items {
-		if s.items[i].ID == id {
+		if s.items[i].ID == id && s.items[i].VIN == vin {
 			s.items[i].Read = true
-			return s.items[i], true
+			return s.items[i], true, nil
 		}
 	}
-	return Notification{}, false
+	return Notification{}, false, nil
 }

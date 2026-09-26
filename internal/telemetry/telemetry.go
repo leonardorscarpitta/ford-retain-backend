@@ -3,6 +3,7 @@
 package telemetry
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -15,8 +16,20 @@ const (
 	StatusCritical  Status = "critical"
 )
 
+// Zone is where a component sits on the vehicle, used to place it on a diagram.
+type Zone string
+
+const (
+	ZoneEngineBay  Zone = "engine-bay"
+	ZoneFrontWheel Zone = "front-wheel"
+	ZoneRearWheel  Zone = "rear-wheel"
+	ZoneUnderbody  Zone = "underbody"
+	ZoneCabin      Zone = "cabin"
+)
+
 type Component struct {
 	Name   string `json:"name"`
+	Zone   Zone   `json:"zone"`
 	Health int    `json:"health"` // 0-100
 	Status Status `json:"status"`
 }
@@ -24,6 +37,8 @@ type Component struct {
 type Battery struct {
 	HealthPercent       int `json:"healthPercent"`
 	EstimatedMonthsLeft int `json:"estimatedMonthsLeft"`
+	// History holds monthly health readings, oldest first.
+	History []int `json:"history"`
 }
 
 type Snapshot struct {
@@ -32,6 +47,12 @@ type Snapshot struct {
 	Battery    Battery     `json:"battery"`
 	Components []Component `json:"components"`
 	UpdatedAt  time.Time   `json:"updatedAt"`
+}
+
+// Source is where telemetry comes from: Store (seed data) offline, Ford's
+// connected-vehicle API in production.
+type Source interface {
+	Get(ctx context.Context, vin string) (Snapshot, bool, error)
 }
 
 // Store is an in-memory telemetry repository keyed by VIN.
@@ -48,9 +69,9 @@ func NewStore(seed []Snapshot) *Store {
 	return &Store{byVIN: m}
 }
 
-func (s *Store) Get(vin string) (Snapshot, bool) {
+func (s *Store) Get(_ context.Context, vin string) (Snapshot, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snap, ok := s.byVIN[vin]
-	return snap, ok
+	return snap, ok, nil
 }
