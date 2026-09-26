@@ -1,0 +1,15 @@
+on:
+  push: [ "master" ]
+  pull_request: [ "master" ]
+
+jobs:
+  gitleaks-job:
+    uses: ./git-leaks.yml
+
+  # semgrep-job:
+  #   uses: ./semgrep.yml
+  #   needs: gitleaks-job
+
+  # sca-sbom-job:
+  #   uses: ./sca-sbom.yml
+  #   needs: semgrep-job

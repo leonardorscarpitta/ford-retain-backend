@@ -1,0 +1,17 @@
+name: SCA & SBOM
+
+on:
+  workflow_call:
+
+jobs:
+  scan:
+    name: Scan Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Checks the whole commit history
+      
+      - name: 
+        uses:

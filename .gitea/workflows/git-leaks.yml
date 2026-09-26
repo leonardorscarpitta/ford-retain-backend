@@ -1,0 +1,19 @@
+name: Git Leaks
+
+on:
+  workflow_call:
+
+jobs:
+  scan:
+    name: Scan Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Checks the whole commit history
+      
+      - name: Git Leaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
