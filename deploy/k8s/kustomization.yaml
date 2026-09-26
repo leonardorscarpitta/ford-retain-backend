@@ -8,4 +8,4 @@ resources:
 images:
   - name: ford-retain-backend
     newName: gitea.lucasggmoreira.com.br/neo/ford-retain-backend
-    newTag: "initial" # set by the pipeline's release job to the tested commit SHA
+    newTag: "619d4cf3338ebd472430077d54ef7914e9b3a53c"
