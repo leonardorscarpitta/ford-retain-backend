@@ -98,33 +98,32 @@ jobs:
     needs: sca
     outputs:
       image: ${{ steps.image.outputs.image }}
-    services:
-      postgres:
-        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_USER: ford
-          POSTGRES_PASSWORD: ford # throwaway CI database
-          POSTGRES_DB: ford_retain
-        options: >-
-          --health-cmd "pg_isready -U ford -d ford_retain"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        with:
-          go-version-file: go.mod
 
-      # Same checks as `make test`.
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - name: go vet
-        run: go vet ./...
-      - name: go test
-        env:
-          TEST_DATABASE_URL: postgres://ford:ford@postgres:5432/ford_retain?sslmode=disable
-        run: go test ./...
+      # Same checks as `make test`. Postgres and the Go toolchain run on a
+      # Docker network created here, and the code is copied in with `docker cp`,
+      # so this works whether the runner's Docker is local or DinD (no service
+      # containers or bind mounts).
+      - name: gofmt, go vet, go test (with Postgres)
+        run: |
+          NET="ci-${{ github.run_id }}-test"
+          trap 'docker rm -f "$NET-pg" "$NET-go" >/dev/null 2>&1; docker network rm "$NET" >/dev/null 2>&1' EXIT
+          docker network create "$NET"
+          docker run -d --name "$NET-pg" --network "$NET" \
+            -e POSTGRES_USER=ford -e POSTGRES_PASSWORD=ford -e POSTGRES_DB=ford_retain \
+            postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+          for i in $(seq 30); do
+            docker exec "$NET-pg" pg_isready -h localhost -U ford -d ford_retain && break
+            [ "$i" = 30 ] && { docker logs "$NET-pg"; exit 1; }
+            sleep 2
+          done
+          docker create --name "$NET-go" --network "$NET" -w /app \
+            -e TEST_DATABASE_URL="postgres://ford:ford@$NET-pg:5432/ford_retain?sslmode=disable" \
+            golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 \
+            sh -c 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }; go vet ./... && go test ./...'
+          docker cp . "$NET-go:/app"
+          docker start -a "$NET-go"
 
       - name: Build and push image
         id: image
@@ -160,33 +159,23 @@ jobs:
     name: DAST (OWASP ZAP baseline)
     runs-on: ubuntu-latest
     needs: [build-test, container-scan]
-    container:
-      image: ghcr.io/zaproxy/zaproxy:2.17.0@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef
-    services:
-      # The image under test, with its in-memory demo data.
-      api:
-        image: ${{ needs.build-test.outputs.image }}
-        credentials:
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
     steps:
-      - name: Wait for the API
-        run: |
-          python3 - <<'EOF'
-          import time, urllib.request
-          for _ in range(30):
-              try:
-                  urllib.request.urlopen("http://api:8080/healthz", timeout=2)
-                  break
-              except Exception:
-                  time.sleep(2)
-          else:
-              raise SystemExit("API did not become healthy")
-          EOF
-
+      # The image under test (in-memory demo data) and ZAP share a Docker
+      # network created here, for the same reason as in build-test.
       - name: Baseline scan
-        # -I: warnings are reported but don't fail the job; FAIL-level alerts do.
-        run: zap-baseline.py -t http://api:8080 -I
+        env:
+          IMAGE: ${{ needs.build-test.outputs.image }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          NET="ci-${{ github.run_id }}-dast"
+          trap 'docker rm -f "$NET-api" >/dev/null 2>&1; docker network rm "$NET" >/dev/null 2>&1; docker logout "$REGISTRY" >/dev/null 2>&1' EXIT
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ github.repository_owner }}" --password-stdin
+          docker network create "$NET"
+          docker run -d --name "$NET-api" --network "$NET" "$IMAGE"
+          # -I: warnings are reported but don't fail the job; FAIL-level alerts do.
+          docker run --rm --network "$NET" -e TARGET="http://$NET-api:8080" \
+            ghcr.io/zaproxy/zaproxy:2.17.0@sha256:781a2bdaea47324e7bab583e2263f21d257b0aee61ed51521a5be45f5f5081ef \
+            sh -c 'for i in $(seq 30); do curl -sf "$TARGET/healthz" >/dev/null && exec zap-baseline.py -t "$TARGET" -I; sleep 2; done; echo "API did not become healthy"; exit 1'
 
   release:
     name: Release (update ArgoCD manifest)

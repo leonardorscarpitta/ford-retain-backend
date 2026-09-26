@@ -252,7 +252,7 @@ make build  # production image
 
 `make test` runs the Go toolchain in a `golang:1.27-alpine` container on the
 `ford-retain` network, sharing the module cache with `make dev`. CI runs the
-same checks, with a Postgres service (see [CI/CD](#cicd)).
+same checks against Postgres (see [CI/CD](#cicd)).
 
 Branches follow git flow: `master` (releases), `develop` (integration),
 `feat/*` and `bugfix/*` for work. Commits follow
@@ -268,7 +268,7 @@ requests to `develop`. Each stage gates the next:
 | Exposed credential check | gitleaks (full git history) | any secret found |
 | SAST | gosec | medium+ severity with medium+ confidence |
 | SCA + SBOM | syft (CycloneDX SBOM, kept as the `sbom` artifact) + grype | high/critical CVEs in dependencies |
-| Build + Tests | gofmt, go vet, go test (Postgres service), `docker build` + push | any failure |
+| Build + Tests | gofmt, go vet, go test with Postgres (containers on a job-scoped Docker network), `docker build` + push | any failure |
 | Container Scan | grype on the pushed image | high/critical CVEs |
 | DAST | OWASP ZAP baseline against the image (seed data) | FAIL-level alerts (warnings are only reported) |
 | Release (pushes only) | commits the image tag to `deploy/k8s/kustomization.yaml` | — |
