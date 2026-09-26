@@ -1,0 +1,39 @@
+# Production-like stack from the Dockerfile: `make prod`.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ford
+      POSTGRES_PASSWORD: ford # use a secret in a real deployment
+      POSTGRES_DB: ford_retain
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ford -d ford_retain"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  backend:
+    build: .
+    environment:
+      DATABASE_URL: "postgres://ford:ford@postgres:5432/ford_retain?sslmode=disable"
+      ADDR: ":8080"
+      ALLOWED_ORIGIN: "http://localhost:3000"
+      # Set these to use Ford's platform; without them the API serves seed data.
+      # FORD_API_URL: "https://…"
+      # FORD_API_KEY: "…"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  default:
+    name: ford-retain
+
+volumes:
+  pg-data:

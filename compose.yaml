@@ -1,0 +1,67 @@
+# Local development: `make dev` (or `docker compose up`). The API is on
+# http://localhost:8080; run ford-retain-frontend alongside it for the app.
+services:
+  # This service's own data (appointments).
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ford
+      POSTGRES_PASSWORD: ford
+      POSTGRES_DB: ford_retain
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432" # for database tools on the host
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ford -d ford_retain"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Stand-in for Ford's platform APIs (see internal/fordapi).
+  fordmock:
+    image: golang:1.27-alpine
+    working_dir: /app
+    command: go run ./cmd/fordmock
+    environment:
+      ADDR: ":8090"
+      FORD_API_KEY: "dev-key"
+    volumes:
+      - .:/app
+      - go-cache:/go
+
+  backend:
+    image: golang:1.27-alpine
+    working_dir: /app
+    command: go run ./cmd/api
+    environment:
+      ADDR: ":8080"
+      ALLOWED_ORIGIN: "http://localhost:3000"
+      # Read vehicles, telemetry, alerts and dealers from Ford's platform (the
+      # mock above). Remove both to serve seed data from memory instead.
+      FORD_API_URL: "http://fordmock:8090"
+      FORD_API_KEY: "dev-key"
+      # Store appointments in Postgres (unset: in memory) and load the demo
+      # bookings into an empty database. Never set SEED_APPOINTMENTS in production.
+      DATABASE_URL: "postgres://ford:ford@postgres:5432/ford_retain?sslmode=disable"
+      SEED_APPOINTMENTS: "true"
+    volumes:
+      - .:/app
+      - go-cache:/go
+    ports:
+      - "8080:8080"
+    depends_on:
+      fordmock:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+# The front-end repo joins this network to reach the API as http://backend:8080.
+networks:
+  default:
+    name: ford-retain
+
+volumes:
+  go-cache:
+    name: ford-retain-go-cache # shared with `make test`
+  pg-data:
