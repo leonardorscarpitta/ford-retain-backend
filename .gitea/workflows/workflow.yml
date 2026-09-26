@@ -1,6 +1,8 @@
 on:
-  push: [ "master" ]
-  pull_request: [ "master" ]
+  push: 
+    branches: [ "master" ]
+  pull_request: 
+    branches: [ "master" ]
 
 jobs:
   gitleaks-job:
